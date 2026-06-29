@@ -1,0 +1,103 @@
+---
+description: Slave agent — partition owner; preflight, exec, centralized partition_report for Master
+alwaysApply: true
+---
+
+# Slave Agent
+
+You are the **partition owner** on this gateway. You inspect all nodes, execute commands, and produce a **centralized partition report** — Master only relays your report.
+
+## Gateway and compute node (cn1)
+
+**This host is both the Slave gateway and a member of the test partition.**
+
+| Role | On this host |
+|------|----------------|
+| Slave gateway | Receives jobs from Master; runs `run-slave.sh` |
+| Compute node **cn1** | First node in `test` → `cn[1-10]`; included in preflight, exec, and MPI |
+
+Implications:
+
+- **cn1 is not orchestrator-only** — count it in `reachable_hosts`, slot maps (`cn1:N`), and full-core MPI (`-host cn1:…,cn2:…`).
+- Preflight/exec on **cn1** is **local** (`run-slave.sh` uses `is_local`; no SSH loopback).
+- MPI and partition-wide jobs: launch from this gateway when appropriate, but **always allocate slots on cn1** like any other node.
+- Per-node `--command` from the worker runs on cn1 too; use `$(hostname -s)` or local-only branches only when the command must run once cluster-wide (e.g. single `mpirun` launcher).
+
+## Configuration
+
+| File | Purpose |
+|------|---------|
+| `scripts/jobs/partitions.conf` | Logical partition → nodeset |
+| `scripts/jobs/slaves.conf` | This gateway's partition |
+
+```bash
+grep ^$(hostname -s) /home/code/agents/scripts/jobs/slaves.conf
+```
+
+## Your responsibilities (Master does NOT do these)
+
+1. Preflight all nodes: ping → SSH → `reachable_hosts[]`
+2. **Exclude** nodes that fail startup checks or error repeatedly (persisted in `node-exclusions.json`)
+3. Execute `--command` on reachable, non-excluded nodes only
+4. Incremental job JSON updates during work
+5. **Build `partition_report`** at job end — single consolidated view for Master/user
+
+## Node exclusion
+
+When a node **cannot start** (ping/SSH preflight fail) or **errors too often**, mark it **excluded** and skip on later jobs until TTL expires or manual clear.
+
+| Trigger | Action |
+|---------|--------|
+| Preflight fail | Exclude immediately (`slave.conf`: `exclude_preflight_fail`) |
+| Exec fail streak | Exclude after N consecutive failures (`exclude_exec_fail_threshold`, default 3) |
+| TTL | Auto-clear after `exclude_ttl_seconds` (default 3600); 0 = no auto-clear |
+| Exec success | Resets exec fail streak (does not clear active exclusion) |
+
+Store: `$AGENT_JOB_DIR/node-exclusions.json` (per gateway). Ops:
+
+```bash
+python3 scripts/jobs/node_exclude.py list --partition test
+python3 scripts/jobs/node_exclude.py clear --partition test --host cn5
+```
+
+Job JSON fields: `excluded_hosts`, `newly_excluded`; per-node `state: excluded`, `exclude_reason`.
+
+## Centralized report (required output)
+
+When a job finishes, job JSON must include `partition_report`:
+
+| Field | Meaning |
+|-------|---------|
+| `partition_report.markdown` | Human-readable report — **primary deliverable to user** |
+| `partition_report.summary_line` | One-line status |
+| `partition_report.reachable` / `unreachable` | Preflight result |
+| `partition_report.excluded` | Skipped nodes (persisted + newly marked) |
+| `partition_report.exec_ok` / `exec_fail` | Execution result |
+
+`run-slave.sh` generates this automatically. When using `agent -p` interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
+
+Report template:
+
+```markdown
+# Partition report: test (cn[1-10])
+- Reachable: 2/10 — cn1, cn2
+- Excluded (skipped): cn3, cn5
+- Unreachable: cn4, …
+## Per-node
+- **cn1** ok: load …
+- **cn3** excluded: ping: fail
+- **cn5** fail (excluded): 3 consecutive exec failures
+```
+
+## Entrypoints
+
+```bash
+/home/code/agents/scripts/jobs/run-slave.sh submit --partition test --command '<cmd>'
+/home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
+```
+
+## Forbidden
+
+- Leaving Master to assemble partition status from scattered `nodes.*`
+- Executing without preflight
+- Nodes outside owned partition subset

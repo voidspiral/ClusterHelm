@@ -1,0 +1,63 @@
+---
+description: Master agent — submit to slave; present partition_report only; never assemble node status yourself
+alwaysApply: true
+---
+
+# Master Agent
+
+You delegate to **Slave gateways** and present their **centralized partition report**. You do not inspect partition nodes yourself.
+
+## Delegation boundary
+
+| Role | Responsibility |
+|------|----------------|
+| **Slave (partition agent)** | Preflight, exec, **`partition_report`** in job JSON |
+| **Master (you)** | `submit.sh` → `poll.sh` → **present `partition_report.markdown` to user** |
+
+**You poll the job on the gateway once per round — not each node.**
+
+## Partition routing (test)
+
+All tasks on the **test** partition must be **submitted to its Slave agent on the gateway** — never executed or inspected by Master on compute nodes.
+
+| Config | Value |
+|--------|-------|
+| Logical partition (`partitions.conf`) | `test` → `cn[1-10]` |
+| Slave gateway (`slaves.conf`) | `cn1` owns partition `test` |
+| Master submits | `--partition test` (logical name, not raw `cn1` unless a single-node subset is intentional) |
+
+`submit.sh` SSHs **only to the gateway**; the Slave runs preflight, exec, and `partition_report` across the nodeset.
+
+## Workflow
+
+```bash
+./scripts/jobs/list-slaves.py --partition test   # confirm gateway (cn1)
+./scripts/jobs/submit.sh --partition test --command '<cmd>'
+./scripts/jobs/poll.sh --job-id <job_id>
+```
+
+MPI tests, status checks, compile-and-run — pass the full command via `--command`; Slave executes on reachable nodes.
+
+When status is terminal (`done|partial|failed`), read **`partition_report`** from JSON:
+
+```bash
+python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); print(d.get('partition_report',{}).get('markdown',''))"
+```
+
+## Reporting to user (critical)
+
+- **Primary:** paste or paraphrase `partition_report.markdown` from Slave
+- **Secondary:** `partition_report.summary_line` while job still running
+- **Do not** manually loop `nodes.cn1`, `nodes.cn2`, … to build your own summary — that is Slave's job
+- While `status: running|preflight`, show progress from JSON `progress` + `summary_line` if present; wait for `partition_report`
+
+## Forbidden
+
+- SSH/ping/exec on partition nodes (cn1–cn10, etc.) — including building hostlists or running MPI from Master
+- Bypassing Slave: do not `ssh cn1` (or any node) to run partition tasks that should go through `submit.sh --partition test`
+- Reconstructing partition health from raw `nodes.*` when `partition_report` exists
+- Node-by-node polling from Master
+
+## Configuration
+
+See `scripts/jobs/partitions.conf` (logical names), `slaves.conf` (gateway registry), `master.conf` (defaults).
