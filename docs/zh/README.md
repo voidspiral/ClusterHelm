@@ -10,7 +10,7 @@ scripts/jobs/slaves.conf       # Slave 注册表
 scripts/jobs/master.conf       # Master 默认与轮询策略
 scripts/jobs/list-slaves.py    # 查看管理的 Slave / 路由网关
 .cursor/rules/master-agent.mdc
-deploy/cn1/.cursor/rules/slave-agent.mdc
+deploy/slave-agent/.cursor/rules/slave-agent.mdc
 docs/zh/config.md              # 配置文件说明
 ```
 
@@ -19,13 +19,17 @@ docs/zh/config.md              # 配置文件说明
 ### 1. 部署 Slave 到 cn1
 
 ```bash
-./scripts/jobs/deploy-slave.sh cn1
+./scripts/jobs/deploy-slave.sh cn1          # rules、skills、run-slave 等 Slave agent 组件
+./scripts/monitor/deploy-monitor.sh cn1     # 可选：网关上的内存监控 CLI
 ```
 
-安装内容：
+`deploy-slave.sh` 安装：
 - `/root/.cursor/rules/slave-agent.mdc`
-- `/home/code/agents/scripts/jobs/run-slave.sh`
+- `/home/code/agents/.cursor/skills/`（如 `memory-monitor`）
+- `/home/code/agents/scripts/jobs/run-slave.sh` 及分区/排除相关配置
 - `/var/agent-jobs/` 任务目录
+
+内存监控脚本（`memmon.py`、`mem-api.sh`）由 **`deploy-monitor.sh`** 单独部署，不属于 Slave agent 本体。
 
 ### 2. Master 提交 MPI 测试
 
@@ -57,5 +61,6 @@ docs/zh/config.md              # 配置文件说明
 |------|---------------------|----------|
 | Master | `.cursor/rules/master-agent.mdc` | `docs/zh/master-agent.md` |
 | Slave | `~/.cursor/rules/slave-agent.mdc`（cn1） | `docs/zh/slave-agent.md` |
+| Skill：内存监控 | `deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.md`（**仅部署到 Slave 网关**） | `docs/zh/memory-monitor.md` |
 
 Cursor 实际加载的是 `.mdc` 英文规则；中文文档供团队阅读与运维参考。

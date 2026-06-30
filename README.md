@@ -20,7 +20,7 @@ Master/slave Cursor agents for async partition execution.
 
 ```
 .cursor/rules/master-agent.mdc
-deploy/cn1/.cursor/rules/slave-agent.mdc
+deploy/slave-agent/.cursor/rules/slave-agent.mdc
 scripts/jobs/
   partitions.conf    # test → cn[1-10]
   slaves.conf        # cn1 → test
@@ -33,7 +33,8 @@ var/agent-jobs/
 ## Quick start
 
 ```bash
-./scripts/jobs/deploy-slave.sh cn1
+./scripts/jobs/deploy-slave.sh cn1          # rules, skills, run-slave (slave agent)
+./scripts/monitor/deploy-monitor.sh cn1   # optional: mem-api on gateway
 ./scripts/jobs/submit.sh --partition test --command 'hostname'
 ./scripts/jobs/poll.sh --job-id job-...
 ```

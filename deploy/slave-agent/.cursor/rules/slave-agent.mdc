@@ -96,6 +96,8 @@ Report template:
 /home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
 ```
 
+- Memory monitor: `scripts/monitor/mem-api.sh local|partition <EXPR>` (see skill `memory-monitor`, deployed under `.cursor/skills/` on gateway)
+
 ## Forbidden
 
 - Leaving Master to assemble partition status from scattered `nodes.*`

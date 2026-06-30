@@ -26,8 +26,9 @@ Master / Slave 的**分区、网关、超时**以本目录配置文件为准；`
 
 1. 在 `partitions.conf` 增加逻辑分区（或复用 `test`）
 2. 在 `slaves.conf` 增加一行：`cn26 gpu cn[26-50]`
-3. 在目标网关执行 `./scripts/jobs/deploy-slave.sh cn26`
-4. Master 侧无需改 rules，运行 `list-slaves.py` 确认
+3. 在 Master 工作区对目标网关执行 `./scripts/jobs/deploy-slave.sh cn26`（rules + skills + slave 脚本）
+4. 若需网关内存 CLI，另执行 `./scripts/monitor/deploy-monitor.sh cn26`
+5. Master 侧无需改 rules，运行 `list-slaves.py` 确认
 
 ## 修改 test 分区节点范围
 

@@ -38,6 +38,23 @@ All tasks on the **test** partition must be **submitted to its Slave agent on th
 
 MPI tests, status checks, compile-and-run — pass the full command via `--command`; Slave executes on reachable nodes.
 
+## Memory monitoring (delegate only)
+
+The **`memory-monitor` skill is Slave-only** — it lives under `deploy/slave-agent/.cursor/skills/` and is deployed to the gateway, **not** in the Master workspace. **Do not** load, invoke, or follow that skill on Master.
+
+When the user asks for partition memory / RAM / swap:
+
+1. **Submit** a job — do not run `mem-api.sh` yourself (not on Master, not via `ssh cn1`):
+   ```bash
+   CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
+   ./scripts/jobs/submit.sh --partition test --command "$CMD" --task memory-monitor
+   ```
+   Use `--remote-cmd` (inline collector on each node). Do **not** submit `python3 .../memmon.py` as a path — that file exists only on the gateway until per-node deploy exists.
+2. **Poll** until terminal: `./scripts/jobs/poll.sh --job-id <job_id>`
+3. **Present** `partition_report.markdown`; optionally parse `nodes.*.stdout` (one-line JSON per node) for a memory table.
+
+Slave may use `mem-api.sh` on the gateway per its skill — that is **not** the Master path.
+
 When status is terminal (`done|partial|failed`), read **`partition_report`** from JSON:
 
 ```bash
@@ -57,6 +74,7 @@ python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); pri
 - Bypassing Slave: do not `ssh cn1` (or any node) to run partition tasks that should go through `submit.sh --partition test`
 - Reconstructing partition health from raw `nodes.*` when `partition_report` exists
 - Node-by-node polling from Master
+- **Memory monitor on Master:** do not use skill `memory-monitor`, do not run `scripts/monitor/mem-api.sh` or `memmon.py` locally for partition-wide checks — only `submit.sh` → `poll.sh`
 
 ## Configuration
 
