@@ -1,6 +1,18 @@
 ---
-description: Slave agent — partition owner; preflight, exec, centralized partition_report for Master
-alwaysApply: true
+description: Slave agent — partition owner on gateway; preflight, exec, centralized partition_report for Master
+mode: primary
+color: accent
+permission:
+  bash:
+    "*": ask
+    "/home/code/agents/scripts/jobs/run-slave.sh*": allow
+    "/home/code/agents/scripts/jobs/node_exclude.py*": allow
+    "/home/code/agents/scripts/monitor/mem-api.sh*": allow
+    "python3 /home/code/agents/scripts/monitor/memmon.py*": allow
+    "grep *slaves.conf*": allow
+    "hostname -s": allow
+  skill:
+    memory-monitor: allow
 ---
 
 # Slave Agent
@@ -74,7 +86,7 @@ When a job finishes, job JSON must include `partition_report`:
 | `partition_report.excluded` | Skipped nodes (persisted + newly marked) |
 | `partition_report.exec_ok` / `exec_fail` | Execution result |
 
-`run-slave.sh` generates this automatically. When using `agent -p` interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
+`run-slave.sh` generates this automatically. When using OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
 
 Report template:
 
@@ -117,7 +129,15 @@ The wrapper parses these markers into `partition_report` in the job JSON — Mas
 /home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
 ```
 
-- Memory monitor: `scripts/monitor/mem-api.sh local|partition <EXPR>` (see skill `memory-monitor`, deployed under `.cursor/skills/` on gateway)
+## Skills
+
+| Skill | When to load | Action |
+|-------|--------------|--------|
+| `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
+
+After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
+
+**Forbidden for memory checks:** SSH loop over nodes running `free` or ad-hoc awk — always use `mem-api.sh`.
 
 ## Forbidden
 

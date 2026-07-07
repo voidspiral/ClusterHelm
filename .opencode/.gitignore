@@ -1,0 +1,3 @@
+# OpenCode agent configs (do not commit secrets)
+node_modules/
+*.log

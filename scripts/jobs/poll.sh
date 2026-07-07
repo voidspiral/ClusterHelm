@@ -44,14 +44,16 @@ out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" -o B
   exit 1
 }
 
+# stdout: JSON only (safe for redirects / json.load(sys.stdin))
 echo "$out"
 mkdir -p "$ROOT/var/agent-jobs"
 echo "$out" > "$ROOT/var/agent-jobs/${JOB_ID}.last.json"
 
 status=$(echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")
-echo "status=$status"
 report=$(echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('partition_report',{}).get('markdown',''))" 2>/dev/null || true)
+# human-readable summary on stderr — do not mix into stdout JSON
+echo "status=$status" >&2
 if [[ -n "$report" ]]; then
-  echo "--- partition_report ---"
-  echo "$report"
+  echo "--- partition_report ---" >&2
+  echo "$report" >&2
 fi

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define HOST_MAX 64
@@ -48,6 +49,40 @@ int main(int argc, char **argv) {
         fflush(stdout);
     }
 
+    if (!all_ok) {
+        MPI_Finalize();
+        return 1;
+    }
+
+    int duration = 0;
+    if (argc > 1)
+        duration = atoi(argv[1]);
+    if (duration <= 0) {
+        char *env = getenv("FULLCORE_DURATION_SEC");
+        if (env)
+            duration = atoi(env);
+    }
+    if (duration > 0) {
+        time_t end = 0;
+        if (rank == 0) {
+            end = time(NULL) + duration;
+            printf("RUN: sustained compute %d sec on all ranks\n", duration);
+            fflush(stdout);
+        }
+        MPI_Bcast(&end, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+        while (time(NULL) < end) {
+            volatile double x = 0.0;
+            for (int i = 0; i < 500000; i++)
+                x += (double)i * 0.0001;
+            (void)x;
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (rank == 0) {
+            printf("PASS: sustained compute finished (%d sec)\n", duration);
+            fflush(stdout);
+        }
+    }
+
     MPI_Finalize();
-    return all_ok ? 0 : 1;
+    return 0;
 }

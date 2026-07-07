@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Memory monitor CLI — local node or partition-wide via run-slave.sh job flow.
+set -x
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

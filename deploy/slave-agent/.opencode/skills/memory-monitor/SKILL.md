@@ -4,11 +4,15 @@ description: >-
   Monitor partition node memory via mem-api.sh on the Slave gateway. Use when
   the user asks about RAM, memory usage, OOM risk, or partition memory health.
   Deployed to Slave only — not used on Master workspace.
+compatibility: opencode
+metadata:
+  role: slave
+  deploy: deploy-slave.sh
 ---
 
 # Memory Monitor (Slave gateway)
 
-This skill is **deployed to the Slave gateway** (e.g. cn1) via **`deploy-slave.sh`** (skills under `deploy/slave-agent/.cursor/skills/`). Monitor CLI binaries are deployed separately via **`scripts/monitor/deploy-monitor.sh`**. It does **not** apply on the Master workspace.
+This skill is **deployed to the Slave gateway** (e.g. cn1) via **`deploy-slave.sh`** (skills under `deploy/slave-agent/.opencode/skills/`). Monitor CLI binaries are deployed separately via **`scripts/monitor/deploy-monitor.sh`**. It does **not** apply on the Master workspace.
 
 Run on the **gateway** using `mem-api.sh`; it reuses `run-slave.sh` preflight, exclusion, and job JSON — do not SSH nodes manually for `free`/`meminfo`.
 

@@ -1,6 +1,17 @@
 ---
 description: Master agent — agent-to-agent delegate to Slave agent via --prompt; present partition_report only
-alwaysApply: true
+mode: primary
+color: primary
+permission:
+  bash:
+    "*": ask
+    "./scripts/jobs/list-slaves.py*": allow
+    "./scripts/jobs/submit.sh*": allow
+    "./scripts/jobs/poll.sh*": allow
+    "python3 -c*partition_report*": allow
+    "python3 scripts/monitor/memmon.py --remote-cmd": allow
+  skill:
+    memory-monitor: deny
 ---
 
 # Master Agent
