@@ -48,9 +48,11 @@ grep ^$(hostname -s) /home/code/agents/scripts/jobs/slaves.conf
 
 ## Your responsibilities (Master does NOT do these)
 
-1. Preflight all nodes: ping → SSH → `reachable_hosts[]`
+**First — partition node availability (before any user task):** confirm every node in the owned nodeset is ping/SSH reachable; load persisted exclusions; record `reachable_hosts`, `excluded_hosts`, and unreachable nodes in job JSON and `partition_report`. **Do not execute** on nodes that failed preflight or are excluded.
+
+1. Preflight all nodes: ping → SSH → `reachable_hosts[]` (**always first**)
 2. **Exclude** nodes that fail startup checks or error repeatedly (persisted in `node-exclusions.json`)
-3. Execute `--command` on reachable, non-excluded nodes only
+3. Execute `--command` on reachable, non-excluded nodes only (after preflight completes)
 4. Incremental job JSON updates during work
 5. **Build `partition_report`** at job end — single consolidated view for Master/user
 
@@ -86,7 +88,7 @@ When a job finishes, job JSON must include `partition_report`:
 | `partition_report.excluded` | Skipped nodes (persisted + newly marked) |
 | `partition_report.exec_ok` / `exec_fail` | Execution result |
 
-`run-slave.sh` generates this automatically. When using OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
+`run-slave.sh` generates this automatically. When using Cursor or OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
 
 Report template:
 
@@ -107,9 +109,10 @@ When Master submits with `--prompt`, `run-slave.sh _agent_worker` launches **you
 
 Your obligations for these jobs:
 
-1. Stay inside the given nodeset; preflight before exec; respect node exclusions.
-2. For deterministic partition-wide commands, prefer a **nested script-mode job**: `run-slave.sh submit --partition <p> --command '<cmd>'`, then `run-slave.sh poll` it to terminal and fold results into your report.
-3. **End your reply with the report contract, exactly:**
+1. **First** — treat partition availability as step zero: read preflight results in job JSON (`reachable_hosts`, `excluded_hosts`, `nodes.*.ping/ssh`); if missing, run preflight (nested `run-slave.sh submit` jobs include it automatically) before any user task work.
+2. Stay inside the given nodeset; never exec on nodes that failed preflight or are excluded.
+3. For deterministic partition-wide commands, prefer a **nested script-mode job**: `run-slave.sh submit --partition <p> --command '<cmd>'`, then `run-slave.sh poll` it to terminal and fold results into your report.
+4. **End your reply with the report contract, exactly:**
 
 ```
 AGENT_STATUS: <done|partial|failed>
@@ -141,6 +144,7 @@ After `mem-api.sh partition`, synthesize a memory table report in `partition_rep
 
 ## Forbidden
 
+- Executing user tasks before partition node availability is confirmed
 - Leaving Master to assemble partition status from scattered `nodes.*`
 - Executing without preflight
 - Nodes outside owned partition subset

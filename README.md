@@ -73,8 +73,8 @@ After deploy, each side uses its own OpenCode default agent:
 
 ```bash
 ./scripts/jobs/deploy-all.sh cn1            # sync Master + Slave first
-./scripts/jobs/submit.sh --partition test --command 'hostname'     # script mode
-./scripts/jobs/submit.sh --partition test --prompt '<task>'        # agent mode (agent-to-agent)
+./scripts/jobs/submit.sh --partition test --prompt '<task>'        # agent mode (default, agent-to-agent)
+./scripts/jobs/submit.sh --partition test --command 'hostname'     # script mode (exception only)
 ./scripts/jobs/poll.sh --job-id job-...
 ```
 

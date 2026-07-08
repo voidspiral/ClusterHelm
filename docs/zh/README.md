@@ -71,12 +71,12 @@ docs/zh/config.md   # 配置文件说明
 ### 2. 提交任务
 
 ```bash
-# Script 模式：确定性命令
-./scripts/jobs/submit.sh --partition test --command 'hostname -s'
-
-# Agent 模式：agent-to-agent，网关启动 Slave agent LLM
+# Agent 模式（Master 默认）：agent-to-agent，网关启动 Slave agent LLM
 ./scripts/jobs/submit.sh --partition test --prompt '检查各节点主机名并汇总报告'
 # 输出：job_id=job-...
+
+# Script 模式（仅例外）：用户明确要求确定性命令时
+./scripts/jobs/submit.sh --partition test --command 'hostname -s'
 ```
 
 ### 3. 轮询结果

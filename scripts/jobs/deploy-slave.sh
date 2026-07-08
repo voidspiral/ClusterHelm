@@ -63,11 +63,13 @@ scp -o ConnectTimeout=15 \
   "$JOBS_DIR/resolve-partition.py" \
   "$JOBS_DIR/slave.conf" \
   "$JOBS_DIR/node_exclude.py" \
+  "$JOBS_DIR/job_preflight.py" \
   "$GATEWAY:$REMOTE_PROJECT/scripts/jobs/"
 
 ssh "$GATEWAY" "chmod +x \
   '$REMOTE_PROJECT/scripts/jobs/run-slave.sh' \
   '$REMOTE_PROJECT/scripts/jobs/resolve-partition.py' \
+  '$REMOTE_PROJECT/scripts/jobs/job_preflight.py' \
   && chmod 755 '$REMOTE_JOB_DIR'"
 
 # Cursor CLI: HTTP/2 + shell permissions for automation on gateway

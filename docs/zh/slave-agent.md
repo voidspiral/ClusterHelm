@@ -24,10 +24,14 @@
 
 ## 职责
 
-1. 对本分区所有节点：ping → SSH 预检
+**首要 — 分区节点可用性（任何用户任务之前）：** 对所属 nodeset 内每一台节点做 ping → SSH 预检；加载持久化排除列表；将 `reachable_hosts`、已排除、不可达节点写入 job JSON 与 `partition_report`。**未通过预检或已排除的节点禁止执行。**
+
+1. 预检所有节点：ping → SSH → `reachable_hosts[]`（**始终第一步**）
 2. **节点排除**：不满足启动条件或频繁出错 → 标记并排除（跨 job 持久化）
-3. 对可达且未排除节点执行 command
+3. 仅对可达且未排除节点执行 command（预检完成后）
 4. 任务结束时写入 **`partition_report`**
+
+Script 模式：`_worker` 自动先预检再执行。Agent 模式：`_agent_worker` 在启动 Slave LLM **之前**自动运行 `job_preflight.py` 写入 job JSON；Slave agent 须先读 `reachable_hosts` / `nodes` 再执行业务任务。
 
 ## 节点排除
 
@@ -45,7 +49,7 @@ python3 scripts/jobs/node_exclude.py list --partition test
 python3 scripts/jobs/node_exclude.py clear --partition test --host cn5
 ```
 
-Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exclude_reason`。
+Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exclude_reason`、`ping`/`ssh`。
 
 ## partition_report 字段
 
@@ -57,7 +61,7 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 | `excluded` | 已排除、本 job 跳过的节点 |
 | `exec_ok` / `exec_fail` | 执行结果 |
 
-`run-slave.sh` 会自动生成。交互式 `agent -p` 时你也须先写分区级摘要，再附细节。
+`run-slave.sh` 会自动生成。交互式 Cursor/OpenCode 时你也须先写分区可用性摘要，再附细节。
 
 ## 报告示例
 
@@ -74,5 +78,6 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 
 ## 禁止
 
+- 在确认分区节点可用性之前执行用户任务
 - 只留原始 `nodes` 数据、让 Master 自己汇总
 - 跳过预检直接执行

@@ -131,3 +131,15 @@ Direct low-level equivalent (debug only):
 Field definitions and examples: [reference.md](reference.md)
 
 中文说明：[SKILL.zh.md](SKILL.zh.md) · [README.zh.md](README.zh.md)
+
+## Master workspace (no this skill)
+
+Master does **not** load this skill. Delegate via agent-to-agent:
+
+```bash
+./scripts/jobs/submit.sh --partition test --prompt \
+  'Check partition memory and swap; load memory-monitor skill; preflight then collect; summarize mem_used_pct and output partition report' \
+  --task memory-monitor
+```
+
+Slave agent runs `mem-api.sh partition` (or nested script job) on the gateway. Script-mode `--command` is fallback only when the user explicitly requests it.

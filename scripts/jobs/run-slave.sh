@@ -118,13 +118,14 @@ if mode == "agent":
 {prompt}
 
 ## Execution rules
-1. Operate only on nodes inside the nodeset above.
-2. Preflight (ping/SSH) before exec; respect persisted node exclusions ({project_root}/scripts/jobs/node_exclude.py list --partition {partition_name}).
+1. **FIRST — partition availability:** every node in the nodeset must be checked (ping → SSH) and persisted exclusions loaded before any user task. Record reachable / excluded / unreachable in the report. Never exec on unverified or excluded nodes. (Agent jobs: preflight runs automatically into job JSON before you start — read `reachable_hosts` and `nodes` first.)
+2. Operate only on nodes inside the nodeset above.
 3. For deterministic partition-wide commands, prefer the built-in worker:
    {project_root}/scripts/jobs/run-slave.sh submit --partition {partition_name} --command '<cmd>'
    then poll it with: {project_root}/scripts/jobs/run-slave.sh poll --job-id <nested_job_id>
    (nested jobs are allowed; incorporate their results into your report).
-4. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
+4. Respect persisted exclusions: {project_root}/scripts/jobs/node_exclude.py list --partition {partition_name}
+5. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
 AGENT_STATUS: <done|partial|failed>
@@ -501,6 +502,9 @@ cmd_agent_worker() {
   prompt_file="$JOB_DIR/${job_id}.prompt"
   agent_log="$JOB_DIR/${job_id}.agent.log"
   [[ -f "$path" && -f "$prompt_file" ]] || exit 1
+
+  # Partition availability first (ping/SSH + exclusions) before launching Slave agent LLM.
+  python3 "$script_dir/job_preflight.py" "$JOB_DIR" "$job_id" "$NODE_SSH_TIMEOUT"
 
   local requested_runtime runtime
   requested_runtime=$(python3 -c "import json; print(json.load(open('$path')).get('runtime') or '')")

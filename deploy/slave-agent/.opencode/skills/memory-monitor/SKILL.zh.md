@@ -195,15 +195,23 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 
 ## Master 侧（无本 Skill）
 
-Master 不下发 `mem-api.sh`，仅提交作业：
+Master 通过 **agent-to-agent** 委托，不下发 `mem-api.sh` 或 `memmon.py`：
+
+```bash
+./scripts/jobs/submit.sh --partition test --prompt \
+  '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
+  --task memory-monitor
+./scripts/jobs/poll.sh --job-id <job_id>
+```
+
+Slave agent 在网关侧加载本 Skill 并执行 `mem-api.sh partition`（或嵌套 script 作业）。Master 从 `partition_report.markdown` 向用户汇报。
+
+Script 模式回退（仅当用户明确要求 `--command`）：
 
 ```bash
 CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
 ./scripts/jobs/submit.sh --partition test --command "$CMD" --task memory-monitor
-./scripts/jobs/poll.sh --job-id <job_id>
 ```
-
-从 `partition_report.markdown` 与 `nodes.<host>.stdout`（单行 JSON）向用户汇报。
 
 ---
 
