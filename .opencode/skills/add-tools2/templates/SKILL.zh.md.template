@@ -1,0 +1,94 @@
+---
+name: {{SKILL_NAME}}-zh
+description: >-
+  {{DESCRIPTION_ZH}}
+---
+
+# {{TITLE_ZH}}
+
+本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/code/agents/.cursor/skills/{{SKILL_NAME}}/`。  
+工具 CLI 由 **`{{DEPLOY_SCRIPT}}`** 单独部署（若无独立部署脚本则删除本句）。  
+**Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll.sh` 委托 Slave 执行。
+
+{{DEPLOYMENT_CONTEXT_ZH}}
+
+英文版：[SKILL.md](SKILL.md)
+
+---
+
+## 角色分工
+
+| 角色 | 使用方式 | 是否加载本 Skill |
+|------|----------|------------------|
+| **Master** | `submit.sh` + `poll.sh`，转发 `partition_report` | **{{MASTER_LOADS}}** |
+| **Slave 网关** | {{SLAVE_USAGE}} | **{{SLAVE_LOADS}}** |
+
+{{MASTER_FORBIDDEN_ZH}}
+
+---
+
+## 部署与模拟阶段
+
+{{DEPLOYMENT_TABLE_ZH}}
+
+部署命令：
+
+```bash
+./scripts/jobs/deploy-slave.sh cn1          # rules + skills + run-slave
+# Optional — only if tool has separate deploy script:
+# ./{{TOOL_DIR}}/{{DEPLOY_SCRIPT}} cn1
+```
+
+---
+
+## 何时使用
+
+{{TRIGGER_BULLETS_ZH}}
+
+---
+
+## 命令
+
+{{COMMANDS_ZH}}
+
+---
+
+## 输出字段
+
+{{OUTPUT_TABLES_ZH}}
+
+---
+
+## 向用户汇报
+
+{{REPORT_EXAMPLE_ZH}}
+
+---
+
+## 作业流
+
+{{JOB_FLOW_ZH}}
+
+---
+
+## Master 侧（无本 Skill）
+
+{{MASTER_SECTION_ZH}}
+
+---
+
+## 禁止事项
+
+{{FORBIDDEN_ZH}}
+
+---
+
+## 相关文件
+
+| 文件 | 说明 |
+|------|------|
+| `{{TOOL_DIR}}/{{ENTRY_SCRIPT}}` | 主入口 |
+| `deploy/slave-agent/.cursor/skills/{{SKILL_NAME}}/SKILL.md` | 英文 Skill |
+| `docs/zh/{{SKILL_NAME}}.md` | 团队文档（可选） |
+
+字段详解：[reference.md](reference.md)

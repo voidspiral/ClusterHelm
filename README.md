@@ -1,15 +1,15 @@
 # Cluster Agent Control Plane
 
-Master/slave Cursor agents for async partition execution.
+Master/Slave agents for async partition execution. Supports **Cursor** and **OpenCode** runtimes on both sides.
 
 **中文：** [`docs/zh/README.md`](docs/zh/README.md) · [架构图](docs/architecture.md) · [配置说明](docs/zh/config.md) · [Master](docs/zh/master-agent.md) · [Slave](docs/zh/slave-agent.md)
 
-## Config vs rules
+## Config vs agent behavior
 
 | Layer | Files | Role |
 |-------|-------|------|
-| **Facts** | `partitions.conf`, `slaves.conf`, `master.conf` | Partitions, slave registry, timeouts |
-| **Behavior** | `.cursor/rules/*.mdc` | How to submit/poll/preflight; points at config |
+| **Facts** | `partitions.conf`, `slaves.conf`, `master.conf`, `slave.conf` | Partitions, slave registry, timeouts, runtime defaults |
+| **Behavior** | `.cursor/rules/*.mdc`, `.opencode/agents/*.md`, `.cursor/skills/` | How Master/Slave agents submit, poll, preflight, and delegate; points at config |
 
 ```bash
 ./scripts/jobs/list-slaves.py          # show managed slaves
@@ -19,20 +19,22 @@ Master/slave Cursor agents for async partition execution.
 ## Layout
 
 ```
-.cursor/rules/master-agent.mdc          # Master Cursor rule (source)
-.opencode/agents/master-agent.md        # Master OpenCode agent
+.cursor/rules/master-agent.mdc          # Master agent (Cursor rules, source)
+.opencode/agents/master-agent.md        # Master agent (OpenCode)
+.opencode/skills/                       # Master skills (e.g. add-tools2)
 opencode.json                           # default_agent=master-agent
 
 deploy/slave-agent/
-  .cursor/rules/slave-agent.mdc         # Slave Cursor rule (deploy source)
-  .opencode/agents/slave-agent.md       # Slave OpenCode agent (deploy source)
+  .cursor/rules/slave-agent.mdc         # Slave agent (Cursor rules, deploy source)
+  .opencode/agents/slave-agent.md       # Slave agent (OpenCode, deploy source)
+  .cursor/skills/ / .opencode/skills/   # Slave skills (e.g. memory-monitor)
   opencode.json                         # default_agent=slave-agent
 
 scripts/jobs/
   partitions.conf    # test → cn[1-10]
   slaves.conf        # cn1 → test
   master.conf        # defaults, poll backoff
-  slave.conf         # node exclusion + agent_runtime (cursor/opencode)
+  slave.conf         # node exclusion + agent_runtime (auto|cursor|opencode)
   deploy-master.sh   # deploy Master agent (local or remote host)
   deploy-slave.sh    # deploy Slave agent to gateway
   deploy-all.sh      # deploy Master + Slave in one step
@@ -41,12 +43,21 @@ scripts/jobs/
 var/agent-jobs/
 ```
 
+## Agent runtimes
+
+| Runtime | Master | Slave (gateway) |
+|---------|--------|-----------------|
+| **Cursor** | `.cursor/rules/master-agent.mdc` | `slave-agent.mdc` → `~/.cursor/rules/` |
+| **OpenCode** | `.opencode/agents/master-agent.md` | `.opencode/agents/slave-agent.md` + skills |
+
+Gateway `slave.conf: agent_runtime` selects Cursor CLI, OpenCode CLI, or `auto`. Override per job with `submit.sh --runtime`.
+
 ## Deploy (sync Master + Slave)
 
 | Script | Target | What it installs |
 |--------|--------|------------------|
-| `deploy-master.sh [HOST\|local]` | Master (default: this workspace) | `master-agent.mdc` → `~/.cursor/rules/`, `.opencode/agents/master-agent.md`, `opencode.json`, `submit.sh` / `poll.sh` / `master.conf` |
-| `deploy-slave.sh <gateway>` | Slave gateway (e.g. `cn1`) | `slave-agent.mdc` → `~/.cursor/rules/`, `.opencode/` (agents + skills), `opencode.json`, `run-slave.sh` / `slave.conf`, `/var/agent-jobs/` |
+| `deploy-master.sh [HOST\|local]` | Master (default: this workspace) | Master agent rules + OpenCode agent + `opencode.json`, `submit.sh` / `poll.sh` / `master.conf` |
+| `deploy-slave.sh <gateway>` | Slave gateway (e.g. `cn1`) | Slave agent rules + OpenCode agents/skills + `opencode.json`, `run-slave.sh` / `slave.conf`, `/var/agent-jobs/` |
 | `deploy-all.sh <gateway> [master-host]` | Both | Runs `deploy-master.sh` then `deploy-slave.sh` |
 
 ```bash
@@ -85,6 +96,6 @@ Gateway auto-selected from `slaves.conf` unless `--gateway` is set.
 | Mode | Flag | Gateway executor |
 |------|------|------------------|
 | Script | `--command '<cmd>'` | Deterministic worker (`run-slave.sh _worker`): preflight → exec → `partition_report` |
-| Agent | `--prompt '<task>'` | **Slave agent LLM**, launched via Cursor CLI (`agent -p`) or OpenCode CLI (`opencode run --agent slave-agent`); runtime chosen by gateway `slave.conf: agent_runtime` (`auto|cursor|opencode`, overridable per job with `--runtime`) |
+| Agent | `--prompt '<task>'` | **Slave agent LLM** (Cursor CLI or OpenCode CLI on gateway); runtime from `slave.conf: agent_runtime` (`auto\|cursor\|opencode`, overridable with `--runtime`) |
 
 Agent-mode jobs share the same job JSON and polling; the agent's final output must follow the report contract (`AGENT_STATUS` + `===PARTITION_REPORT_BEGIN/END===`), which the gateway parses into `partition_report`.

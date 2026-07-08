@@ -1,0 +1,17 @@
+# {{TITLE_ZH}} — 中文
+
+完整中文版：**[SKILL.zh.md](SKILL.zh.md)**  
+英文版（Cursor 加载）：[SKILL.md](SKILL.md)
+
+## 快速参考
+
+```bash
+{{QUICK_COMMAND_1}}
+{{QUICK_COMMAND_2}}
+```
+
+- **部署**：Skill → `deploy-slave.sh`；工具 → `{{DEPLOY_SCRIPT}}`（无则删除）
+- **作用域**：{{SCOPE_ZH}}
+- **数据源 / 入口**：{{ONE_LINE_SUMMARY}}
+
+团队文档：`docs/zh/{{SKILL_NAME}}.md`（可选，仓库内不部署）

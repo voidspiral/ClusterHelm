@@ -1,0 +1,43 @@
+---
+name: {{SKILL_NAME}}
+description: >-
+  {{DESCRIPTION_EN}}
+---
+
+# {{TITLE_EN}}
+
+{{DEPLOYMENT_BOUNDARY_PARAGRAPH}}
+
+{{DEPLOYMENT_CONTEXT}}
+
+## When to use
+
+{{TRIGGER_BULLETS}}
+
+## Commands
+
+{{COMMANDS}}
+
+## Reading output
+
+{{OUTPUT_TABLES}}
+
+## Reporting to user
+
+{{REPORT_EXAMPLE}}
+
+## Job flow
+
+{{JOB_FLOW}}
+
+## Forbidden
+
+{{FORBIDDEN}}
+
+## Reference
+
+Field definitions and examples: [reference.md](reference.md)
+
+中文说明：[SKILL.zh.md](SKILL.zh.md) · [README.zh.md](README.zh.md)
+
+{{ROLE_RUNTIME_SECTION}}

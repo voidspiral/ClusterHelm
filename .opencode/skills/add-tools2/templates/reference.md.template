@@ -1,0 +1,21 @@
+# {{TITLE_EN}} — JSON / paths reference
+
+## CLI output
+
+```json
+{{JSON_EXAMPLE}}
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| {{FIELD_ROWS}} |
+
+## Paths
+
+| Artifact | Path |
+|----------|------|
+| {{PATH_ROWS}} |
+
+## Notes
+
+{{EXTRA_NOTES}}
