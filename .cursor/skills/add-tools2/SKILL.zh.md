@@ -14,9 +14,9 @@ disable-model-invocation: true
 
 | 类型 | 路径 | 部署 |
 |------|------|------|
-| **本 meta skill**（`add-tools2`） | `.cursor/skills/add-tools2/` | 仅 Master，不 deploy |
+| **本 meta skill**（`add-tools2`） | `.cursor/skills/add-tools2/` **与** `.opencode/skills/add-tools2/` | 仅 Master，两处保持同步，不 deploy |
 | **生成的 tool skill（slave / both）** | `deploy/slave-agent/.cursor/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
-| **生成的 tool skill（master）** | `.cursor/skills/<name>/` | 不 deploy；Master 工作区直接加载 |
+| **生成的 tool skill（master）** | `.cursor/skills/<name>/` **与** `.opencode/skills/<name>/` | 不 deploy；Master 工作区直接加载 |
 
 **流程：**
 
@@ -64,6 +64,7 @@ deploy/slave-agent/.opencode/skills/<skill-name>/
 
 ```
 .cursor/skills/<skill-name>/
+.opencode/skills/<skill-name>/
 ├── SKILL.md
 ├── SKILL.zh.md
 ├── reference.md
@@ -128,6 +129,7 @@ metadata:
 - [ ] 英文 description 含触发关键词
 - [ ] 命令为绝对路径；禁止 SSH 循环等反模式已写明
 - [ ] `SKILL.zh.md` 已生成且结构对齐
+- [ ] scope 为 master 时：已写入 `.cursor/skills/` 与 `.opencode/skills/` 双份
 - [ ] 有结构化输出时 `reference.md` 含 JSON/路径表
 - [ ] `README.zh.md` 为短指针（≤30 行）
 - [ ] 若需 Slave 路由：更新 `deploy/slave-agent/.opencode/agents/slave-agent.md` skills 表

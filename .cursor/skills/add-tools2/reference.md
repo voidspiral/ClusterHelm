@@ -6,9 +6,11 @@ Reference for `/add-tools2` (Master-only meta skill). Example deployed skills li
 
 | Artifact | Path | Notes |
 |----------|------|-------|
-| Meta skill | `.cursor/skills/add-tools2/` | Never under `deploy/slave-agent/` |
-| Generated skill (Cursor) | `deploy/slave-agent/.cursor/skills/<name>/` | Deployed by `deploy-slave.sh` |
-| Generated skill (OpenCode) | `deploy/slave-agent/.opencode/skills/<name>/` | Same script |
+| Meta skill (Cursor) | `.cursor/skills/add-tools2/` | Keep in sync with OpenCode copy |
+| Meta skill (OpenCode) | `.opencode/skills/add-tools2/` | Master OpenCode; never under `deploy/slave-agent/` |
+| Generated skill (Slave Cursor) | `deploy/slave-agent/.cursor/skills/<name>/` | `deploy-slave.sh` |
+| Generated skill (Slave OpenCode) | `deploy/slave-agent/.opencode/skills/<name>/` | Same deploy |
+| Generated skill (Master) | `.cursor/skills/<name>/` + `.opencode/skills/<name>/` | Not deployed |
 | Remote (Slave) | `/home/code/agents/.cursor/skills/<name>/` | After deploy |
 
 Deploy command: `./scripts/jobs/deploy-slave.sh <gateway>`

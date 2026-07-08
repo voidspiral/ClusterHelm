@@ -11,6 +11,7 @@ permission:
     "python3 -c*partition_report*": allow
   skill:
     memory-monitor: deny
+    add-tools2: allow
 ---
 
 # Master Agent
@@ -180,6 +181,12 @@ python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); pri
 - **Secondary:** `partition_report.summary_line` while job still running
 - **Do not** manually loop `nodes.cn1`, `nodes.cn2`, … to build your own summary — that is Slave's job
 - While `status: running|preflight`, show progress from JSON `progress` + `summary_line` if present; wait for `partition_report`
+
+| Meta skill | Path (Cursor + OpenCode) | When |
+|------------|--------------------------|------|
+| `add-tools2` | `.cursor/skills/add-tools2/` · `.opencode/skills/add-tools2/` | User invokes `/add-tools2` or asks to scaffold a tool skill |
+
+`memory-monitor` is **Slave-only** — denied on Master (delegate via `submit.sh --prompt`).
 
 ## Forbidden
 

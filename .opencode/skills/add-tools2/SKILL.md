@@ -5,27 +5,30 @@ description: >-
   reference.md + README.zh.md). Use when the user invokes /add-tools2, asks to add
   a tool to skills, or convert tooling into deployable Slave skills.
 disable-model-invocation: true
+compatibility: opencode
+metadata:
+  role: master
 ---
 
 # Add Tool to Skills (`/add-tools2`)
 
-Scaffold a **tool skill** from an existing tool directory or repo path. Output uses the standard four-file layout under `deploy/slave-agent/`.
+Scaffold a **tool skill** from an existing tool directory or repo path. Output uses the standard four-file layout under `deploy/slave-agent/` (Slave) or `.cursor/skills/` / `.opencode/skills/` (Master).
 
 ## Where skills live (Master vs Slave)
 
 | Kind | Path | Deploy |
 |------|------|--------|
-| **This meta skill** (`add-tools2`) | `.cursor/skills/add-tools2/` **and** `.opencode/skills/add-tools2/` | Master only — keep in sync; not deployed |
+| **This meta skill** (`add-tools2`) | `.cursor/skills/add-tools2/` **and** `.opencode/skills/add-tools2/` | Master only — keep both in sync; not deployed |
 | **Generated tool skill (slave / both)** | `deploy/slave-agent/.cursor/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
 | **Generated tool skill (master)** | `.cursor/skills/<name>/` **and** `.opencode/skills/<name>/` | Not deployed — loaded on Master workspace |
 
 **Workflow:**
 
-1. On **Master**, invoke `/add-tools2 <tool-path>` → agent writes skill files under `deploy/slave-agent/`.
-2. Review generated files; update `deploy/slave-agent/.opencode/agents/slave-agent.md` skills table if needed.
-3. Deploy to Slave gateway: `./scripts/jobs/deploy-slave.sh <gateway>` (syncs `deploy/slave-agent/.cursor/skills/*` and `.opencode/*` to `/home/code/agents/` on cn1).
+1. On **Master**, invoke `/add-tools2 <tool-path>` → agent writes skill files under `deploy/slave-agent/` and/or Master skill dirs.
+2. Review generated files; update `deploy/slave-agent/.opencode/agents/slave-agent.md` skills table if Slave scope.
+3. Deploy Slave skills: `./scripts/jobs/deploy-slave.sh <gateway>` (syncs `deploy/slave-agent/.cursor/skills/*` and `.opencode/*` to cn1).
 
-Do **not** copy `add-tools2` into `deploy/slave-agent/`. Do **not** put generated tool skills in repo-root `.cursor/skills/`.
+Do **not** copy `add-tools2` into `deploy/slave-agent/`.
 
 中文说明：[SKILL.zh.md](SKILL.zh.md)
 
@@ -55,12 +58,12 @@ deploy/slave-agent/.cursor/skills/<skill-name>/
 deploy/slave-agent/.opencode/skills/<skill-name>/
 ```
 
-**master** — Master workspace only:
+**master** — Master workspace (Cursor + OpenCode):
 
 ```
 .cursor/skills/<skill-name>/
 .opencode/skills/<skill-name>/
-├── SKILL.md
+├── SKILL.md (+ OpenCode frontmatter on .opencode copy)
 ├── SKILL.zh.md
 ├── reference.md
 └── README.zh.md
@@ -96,18 +99,18 @@ Keep `SKILL.md` **under 500 lines**. Push detail to `reference.md`.
 - Extra sections: **角色分工**, **部署与模拟阶段**, **禁止事项**, **相关文件** (table)
 - Link back to English: `英文版：[SKILL.md](SKILL.md)`
 
-## OpenCode copy delta
+## OpenCode copy delta (generated skills)
 
-Add to `.opencode/skills/<skill-name>/SKILL.md` frontmatter only:
+Add to `.opencode/skills/<skill-name>/SKILL.md` frontmatter:
 
 ```yaml
 compatibility: opencode
 metadata:
   role: slave   # or master / both
-  deploy: deploy-slave.sh
+  deploy: deploy-slave.sh   # omit for master-only
 ```
 
-Body matches Cursor `SKILL.md` except paths note `.opencode/skills/` in deployment paragraph.
+Body matches Cursor `SKILL.md`; Slave deploy paragraph notes `.opencode/skills/` under `deploy/slave-agent/`.
 
 ## Post-create checklist
 
