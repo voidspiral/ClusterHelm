@@ -1,6 +1,6 @@
 # 配置文件说明（Source of Truth）
 
-Master / Slave 的**分区、网关、超时**以本目录配置文件为准；`.cursor/rules/*.mdc` 只描述行为，**不重复**具体节点列表。
+Master / Slave 的**分区、网关、超时**以本目录配置文件为准；`.opencode/agents/*.md` 只描述行为，**不重复**具体节点列表。
 
 ## 文件一览
 
@@ -8,7 +8,7 @@ Master / Slave 的**分区、网关、超时**以本目录配置文件为准；`
 |------|--------|------|
 | `partitions.conf` | 集群管理员 | 逻辑分区名 → 节点集，如 `test cn[1-10]` |
 | `slaves.conf` | 集群管理员 | Slave 注册表：网关 → 逻辑分区 |
-| `master.conf` | Master 项目 | 默认网关/分区、轮询退避、SSH 超时 |
+| `master.conf` | Master 项目 | 默认网关/分区、SSH 超时 |
 | `slave.conf` | Slave 网关 | 节点排除阈值、TTL、持久化文件名 |
 | `node_exclude.py` | — | 排除列表读写；`list` / `clear` / `check` |
 | `resolve-partition.py` | — | 解析 `test` → `cn[1-10]`，校验子集 |

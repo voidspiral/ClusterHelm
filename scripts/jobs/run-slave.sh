@@ -2,14 +2,16 @@
 # Slave-side: submit / poll / background execute partition jobs.
 set -euo pipefail
 
-JOB_DIR="${AGENT_JOB_DIR:-/var/agent-jobs}"
+JOB_DIR="${AGENT_JOB_DIR:-/home/smt/agents/var/agent-jobs}"
 NODE_SSH_TIMEOUT="${AGENT_NODE_SSH_TIMEOUT:-10}"
 
 usage() {
-  echo "Usage: $0 submit --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--deadline SEC] [--runtime auto|cursor|opencode]" >&2
+  echo "Usage: $0 submit --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--deadline SEC] [--runtime auto|opencode]" >&2
   echo "       $0 poll --job-id ID" >&2
+  echo "       $0 wait --job-id ID [--timeout SEC]" >&2
   echo "  --command  script mode: deterministic per-node exec (built-in worker)" >&2
-  echo "  --prompt   agent mode: launch the Slave agent CLI (cursor/opencode) with the task" >&2
+  echo "  --prompt   agent mode: launch the Slave agent CLI (opencode) with the task" >&2
+  echo "  wait       block until job terminal, then cat JSON" >&2
   exit 1
 }
 
@@ -24,27 +26,15 @@ slave_conf_get() {
   echo "$fallback"
 }
 
-# Resolve which agent CLI to use: cursor | opencode | none.
-# Precedence: explicit arg > AGENT_RUNTIME env > slave.conf agent_runtime > auto.
+# Resolve agent CLI: always opencode.
 resolve_runtime() {
-  local pref="${1:-}"
-  [[ -z "$pref" || "$pref" == "auto" ]] && pref="${AGENT_RUNTIME:-$(slave_conf_get agent_runtime auto)}"
-  local cursor_bin opencode_bin
-  cursor_bin="$(slave_conf_get agent_cursor_bin /root/.local/bin/agent)"
+  local opencode_bin
   opencode_bin="$(slave_conf_get agent_opencode_bin opencode)"
-  case "$pref" in
-    cursor) echo "cursor" ;;
-    opencode) echo "opencode" ;;
-    *)
-      if command -v "$opencode_bin" >/dev/null 2>&1; then
-        echo "opencode"
-      elif [[ -x "$cursor_bin" ]] || command -v agent >/dev/null 2>&1; then
-        echo "cursor"
-      else
-        echo "none"
-      fi
-      ;;
-  esac
+  if command -v "$opencode_bin" >/dev/null 2>&1; then
+    echo "opencode"
+  else
+    echo "none"
+  fi
 }
 
 cmd_submit() {
@@ -71,11 +61,14 @@ cmd_submit() {
   project_root="$(cd "$script_dir/../.." && pwd)"
   local partition_input="$partition"
   partition=$(python3 "$script_dir/resolve-partition.py" "$partition" --validate)
-  python3 - "$JOB_DIR" "$job_id" "$partition_input" "$partition" "$command" "$deadline" "$task_title" "$mode" "$prompt" "$runtime" "$project_root" <<'PY'
+  local mpi_mpicc mpi_mpirun
+  mpi_mpicc="$(slave_conf_get mpi_mpicc '')"
+  mpi_mpirun="$(slave_conf_get mpi_mpirun '')"
+  python3 - "$JOB_DIR" "$job_id" "$partition_input" "$partition" "$command" "$deadline" "$task_title" "$mode" "$prompt" "$runtime" "$project_root" "$mpi_mpicc" "$mpi_mpirun" <<'PY'
 import json, sys
 from datetime import datetime, timezone, timedelta
 (job_dir, job_id, partition_name, partition_nodeset, command, deadline,
- task_title, mode, prompt, runtime, project_root) = sys.argv[1:12]
+ task_title, mode, prompt, runtime, project_root, mpi_mpicc, mpi_mpirun) = sys.argv[1:14]
 deadline = int(deadline)
 now = datetime.now(timezone.utc)
 deadline_at = (now + timedelta(seconds=deadline)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -104,7 +97,7 @@ with open(f"{job_dir}/{job_id}.json", "w") as f:
     json.dump(data, f, indent=2)
 
 if mode == "agent":
-    # Full prompt handed to the Slave agent CLI (cursor `agent -p` / `opencode run`).
+    # Full prompt handed to the Slave agent CLI.
     # The report contract markers are parsed back by _agent_worker's finalizer.
     contract = f"""You are the slave-agent, the partition owner on this gateway.
 
@@ -125,7 +118,8 @@ if mode == "agent":
    then poll it with: {project_root}/scripts/jobs/run-slave.sh poll --job-id <nested_job_id>
    (nested jobs are allowed; incorporate their results into your report).
 4. Respect persisted exclusions: {project_root}/scripts/jobs/node_exclude.py list --partition {partition_name}
-5. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
+5. MPI environment (from slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
+6. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
 AGENT_STATUS: <done|partial|failed>
@@ -538,28 +532,28 @@ PY
 
   local prompt rc=0
   prompt="$(cat "$prompt_file")"
-  local cursor_bin opencode_bin opencode_agent
-  cursor_bin="$(slave_conf_get agent_cursor_bin /root/.local/bin/agent)"
+  local opencode_bin opencode_agent
   opencode_bin="$(slave_conf_get agent_opencode_bin opencode)"
   opencode_agent="$(slave_conf_get agent_opencode_agent slave-agent)"
 
-  case "$runtime" in
-    opencode)
-      (cd "$project_root" && timeout "$timeout_sec" "$opencode_bin" run --agent "$opencode_agent" --auto "$prompt") \
-        > "$agent_log" 2>&1 || rc=$?
-      ;;
-    cursor)
-      export PATH="/root/.local/bin:$PATH"
-      local cursor_cmd="$cursor_bin"
-      [[ -x "$cursor_cmd" ]] || cursor_cmd="agent"
-      (cd "$project_root" && timeout "$timeout_sec" "$cursor_cmd" -p "$prompt") \
-        > "$agent_log" 2>&1 || rc=$?
-      ;;
-    *)
-      echo "ERROR: no agent CLI available (agent_runtime=$requested_runtime resolved=$runtime)" > "$agent_log"
-      rc=127
-      ;;
-  esac
+  # Inject MPI paths from slave.conf into agent environment
+  local mpi_mpicc mpi_mpirun mpi_bin_dir
+  mpi_mpicc="$(slave_conf_get mpi_mpicc '')"
+  mpi_mpirun="$(slave_conf_get mpi_mpirun '')"
+  if [[ -n "$mpi_mpirun" ]]; then
+    mpi_bin_dir="$(dirname "$mpi_mpirun")"
+    export PATH="$mpi_bin_dir:$PATH"
+    export MPICC="$mpi_mpicc"
+    export MPIRUN="$mpi_mpirun"
+  fi
+
+  if [[ "$runtime" == "opencode" && -n "$opencode_bin" ]]; then
+    (cd "$project_root" && timeout "$timeout_sec" "$opencode_bin" run --agent "$opencode_agent" "$prompt") \
+      > "$agent_log" 2>&1 || rc=$?
+  else
+    echo "ERROR: no agent CLI available (runtime=$runtime)" > "$agent_log"
+    rc=127
+  fi
 
   # Finalize: honor JSON if the agent already wrote a terminal partition_report;
   # otherwise parse the report contract from the CLI output.
@@ -617,11 +611,45 @@ with open(path, "w") as f:
 PY
 }
 
+cmd_wait() {
+  local job_id="" timeout=600
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --job-id) job_id="$2"; shift 2 ;;
+      --timeout) timeout="$2"; shift 2 ;;
+      -h|--help) usage ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$job_id" ]] || usage
+
+  local f="$JOB_DIR/${job_id}.json"
+  local deadline=$(( $(date +%s) + timeout ))
+  local backoff=5
+
+  while [[ $(date +%s) -lt $deadline ]]; do
+    if [[ -f "$f" ]]; then
+      local status
+      status=$(python3 -c "import json; print(json.load(open('$f')).get('status','?'))" 2>/dev/null || echo "?")
+      if [[ "$status" =~ ^(done|partial|failed)$ ]]; then
+        cat "$f"
+        exit 0
+      fi
+    fi
+    sleep "$backoff"
+    # progressive backoff: 5→10→15→20→25→30 (capped)
+    backoff=$(( backoff < 30 ? backoff + 5 : 30 ))
+  done
+  echo "{\"error\":\"wait timeout\",\"job_id\":\"$job_id\"}" >&2
+  exit 1
+}
+
 main="${1:-}"
 shift || true
 case "$main" in
   submit) cmd_submit "$@" ;;
   poll) cmd_poll "$@" ;;
+  wait) cmd_wait "$@" ;;
   _worker) cmd_worker "$@" ;;
   _agent_worker) cmd_agent_worker "$@" ;;
   *) usage ;;

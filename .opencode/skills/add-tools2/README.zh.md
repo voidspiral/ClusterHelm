@@ -7,14 +7,14 @@
 
 ```
 /add-tools2 scripts/monitor
-/add-tools2 /home/code/trans-tools --name trans-tools
+/add-tools2 /home/smt/trans-tools --name trans-tools
 ```
 
 ## Master 加载路径
 
 | 运行时 | 路径 |
 |--------|------|
-| Cursor | `.cursor/skills/add-tools2/` |
+| | `.opencode/skills/add-tools2/` |
 | OpenCode | `.opencode/skills/add-tools2/` |
 
 两处内容保持同步；**不** deploy 到 Slave。
@@ -23,9 +23,9 @@
 
 ```
 Master: /add-tools2 → deploy/slave-agent/...（slave scope）
-                    → .cursor/skills/ + .opencode/skills/（master scope）
+                    → .opencode/skills/ + .opencode/skills/（master scope）
         ↓ 审阅
         ./scripts/jobs/deploy-slave.sh cn1   # 仅 slave/both
 ```
 
-已有 skill 可参考：`deploy/slave-agent/.cursor/skills/`
+已有 skill 可参考：`deploy/slave-agent/.opencode/skills/`

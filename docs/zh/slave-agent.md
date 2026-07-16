@@ -18,6 +18,7 @@
 - **cn1 不是纯调度机** — 计入 `reachable_hosts`、slot 映射（`cn1:N`）和满核 MPI（`-host cn1:…,cn2:…`）。
 - 对 **cn1** 的预检/执行走**本地路径**（`run-slave.sh` 的 `is_local`，不经 SSH 回环）。
 - MPI 等分区级任务：可由本机发起 `mpirun`，但 **cn1 的核数与 cn2… 一样参与分配**。
+- MPI 环境已自动注入：agent 启动时 `PATH` 已包含 `slave.conf` 中 `mpi_mpirun` 的目录（`/home/smt/mpich4-install/bin`），且环境变量 `MPICC` / `MPIRUN` 已设置 — agent 可直接使用 `mpirun` / `mpicc` 而不需指定绝对路径。
 - Worker 下发的 per-node `--command` 也会在 cn1 上执行；仅当命令应全分区只跑一份时（如单次 `mpirun`），再用 `$(hostname -s)` 等做网关侧分支。
 
 ---
@@ -61,7 +62,7 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 | `excluded` | 已排除、本 job 跳过的节点 |
 | `exec_ok` / `exec_fail` | 执行结果 |
 
-`run-slave.sh` 会自动生成。交互式 Cursor/OpenCode 时你也须先写分区可用性摘要，再附细节。
+`run-slave.sh` 会自动生成。交互式使用时你也须先写分区可用性摘要，再附细节。
 
 ## 报告示例
 

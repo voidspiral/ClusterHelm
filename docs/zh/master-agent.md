@@ -9,7 +9,7 @@
 | 角色 | 职责 |
 |------|------|
 | **Slave（分区 Agent）** | 预检、执行、生成 **`partition_report`** |
-| **Master（你）** | `submit.sh --prompt` → `poll.sh` → **把 `partition_report.markdown` 呈现给用户** |
+| **Master（你）** | `submit.sh --prompt` → `poll-wait.sh` → **把 `partition_report.markdown` 呈现给用户** |
 
 ## Agent-to-agent（默认 — 始终使用）
 
@@ -19,18 +19,44 @@
 ./scripts/jobs/list-slaves.py --partition test   # 确认网关（cn1）
 
 # 主路径：自然语言任务 → 网关启动 Slave agent CLI
-./scripts/jobs/submit.sh --partition test --prompt '<给 Slave agent 的任务说明>' [--runtime auto|cursor|opencode]
+./scripts/jobs/submit.sh --partition test --prompt '<给 Slave agent 的任务说明>' [--runtime auto|opencode]
 
-./scripts/jobs/poll.sh --job-id <job_id>
+./scripts/jobs/poll-wait.sh --job-id <job_id>
 ```
 
 | 步骤 | 执行者 | 动作 |
 |------|--------|------|
 | 1. 提交 | **Master agent** | `submit.sh --partition test --prompt '...'` |
-| 2. 启动 | 网关 `run-slave.sh _agent_worker` | 经 Cursor CLI（`agent -p`）或 OpenCode CLI（`opencode run --agent slave-agent`）启动 **Slave agent** |
+| 2. 启动 | 网关 `run-slave.sh _agent_worker` | 经 OpenCode CLI（`opencode run --agent slave-agent`）启动 **Slave agent** |
 | 3. 执行 | **Slave agent LLM** | 预检、选命令、在各节点执行、生成 `partition_report` |
-| 4. 轮询 | **Master agent** | `poll.sh` 直至 `done\|partial\|failed` |
+| 4. 轮询 | **Master agent** | `poll-wait.sh --job-id <id>`（**单次阻塞** — SSH → `run-slave.sh wait`，终态后直接返回） |
 | 5. 汇报 | **Master agent** | 呈现 `partition_report.markdown` |
+
+## 硬规则
+
+- **任何涉及计算节点、MPI、集群执行的任务，必须通过 `submit.sh` 交给 Slave** — 即使未显式指定分区（默认 `test`）。
+- **禁止 Master 直接 SSH 或本地执行分区节点上的命令。** 所有节点级操作属于 Slave agent。
+- **未指明分区时，默认使用 `--partition test`。**
+
+## 并行任务（多分区独立作业）
+
+用户请求包含多个独立分区任务时，一次性提交所有任务，然后并行等待：
+
+```bash
+# 提交所有独立任务
+OUT_A=$(./scripts/jobs/submit.sh --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./scripts/jobs/submit.sh --partition dev --prompt 'task B' --task job-b)
+JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')
+JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
+
+# 并行阻塞等待
+./scripts/jobs/poll-wait.sh --job-id "$JOB_A"
+./scripts/jobs/poll-wait.sh --job-id "$JOB_B"
+
+# 分别呈现 partition_report
+```
+
+无法并行 Bash 调用时，可串行提交、再并行等待。
 
 `--prompt` 应写成 **给 Slave agent 的任务简报**（意图 + 约束），不是 shell 一行命令。示例：
 
@@ -40,7 +66,7 @@
   --task hostname-check
 ```
 
-网关运行时：`slave.conf: agent_runtime`（`auto|cursor|opencode`）；可用 `--runtime` 按作业覆盖。
+网关运行时由 `slave.conf: agent_opencode_bin` 指定。
 
 ## Script 模式（仅例外）
 
@@ -66,7 +92,7 @@
 
 ## 内存监控（agent-to-agent）
 
-**`memory-monitor` Skill 仅属于 Slave**（源码在 `deploy/slave-agent/.cursor/skills/`，部署到网关）。Master 工作区**不加载、不遵循**该 Skill。
+**`memory-monitor` Skill 仅属于 Slave**（源码在 `deploy/slave-agent/.opencode/skills/`，部署到网关）。Master 工作区**不加载、不遵循**该 Skill。
 
 用户询问分区内存 / RAM / swap 时，**通过 `--prompt` 委托**：
 
@@ -105,8 +131,8 @@ python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); pri
 - Master 自己 SSH/ping/执行到各计算节点（含在 Master 侧组 hostlist、跑 MPI）
 - 绕过 Slave agent：勿 `ssh cn1` 做分区任务 — 使用 `submit.sh --prompt`
 - 在已有 `partition_report` 时仍从 `nodes` 逐台拼装汇报
-- **内存监控：** Master 禁止使用 `memory-monitor` Skill，禁止本地或 SSH 执行 `mem-api.sh` / 分区级 `memmon.py` — 只能 `submit.sh` → `poll.sh`
+- **内存监控：** Master 禁止使用 `memory-monitor` Skill，禁止本地或 SSH 执行 `mem-api.sh` / 分区级 `memmon.py` — 只能 `submit.sh` → `poll-wait.sh`
 
-## 进行中
+## 关于阻塞等待
 
-`status` 为 running/preflight 时，可展示 `progress` 与 `summary_line`；完整分区报告等 Slave 写入 `partition_report`。
+`poll-wait.sh` 在返回前不输出中间进度。如需查看进度，可先单次调用 `poll.sh`（快速查询），再运行 `poll-wait.sh` 等待完成。

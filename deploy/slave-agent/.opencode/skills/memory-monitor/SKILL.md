@@ -38,7 +38,7 @@ See `scripts/monitor/README.md`.
 ### Local (this host only)
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh local
+/home/smt/agents/scripts/monitor/mem-api.sh local
 ```
 
 Returns one JSON object for the current node (gateway cn1 counts as a compute node).
@@ -46,13 +46,13 @@ Returns one JSON object for the current node (gateway cn1 counts as a compute no
 ### Partition-wide
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh partition test
+/home/smt/agents/scripts/monitor/mem-api.sh partition test
 ```
 
 Subset of nodes:
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 Internally: `run-slave.sh submit` with `$(python3 memmon.py --remote-cmd)` on each reachable, non-excluded node (inline — no file required on cn2–cn10), polls until terminal, aggregates JSON.
@@ -117,11 +117,11 @@ Include excluded/unreachable nodes in prose — they were not sampled.
 Direct low-level equivalent (debug only):
 
 ```bash
-/home/code/agents/scripts/jobs/run-slave.sh submit \
+/home/smt/agents/scripts/jobs/run-slave.sh submit \
   --partition test \
-  --command "$(python3 /home/code/agents/scripts/monitor/memmon.py --remote-cmd)" \
+  --command "$(python3 /home/smt/agents/scripts/monitor/memmon.py --remote-cmd)" \
   --task memory-monitor
-/home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
+/home/smt/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
 ```
 
 ## Forbidden

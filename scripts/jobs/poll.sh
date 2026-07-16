@@ -2,7 +2,6 @@
 # Master-side: poll job status from slave gateway.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 JOBS_DIR="$(cd "$(dirname "$0")" && pwd)"
 GATEWAY=""
 JOB_ID=""
@@ -35,7 +34,7 @@ done
 
 GATEWAY="${GATEWAY:-$(read_master_default default_gateway cn1)}"
 POLL_TIMEOUT="$(read_master_default poll_timeout 15)"
-REMOTE_PROJECT="$(read_master_default remote_project /home/code/agents)"
+REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
 REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/jobs/run-slave.sh"
 
 out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" -o BatchMode=yes "$GATEWAY" \
@@ -46,14 +45,3 @@ out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" -o B
 
 # stdout: JSON only (safe for redirects / json.load(sys.stdin))
 echo "$out"
-mkdir -p "$ROOT/var/agent-jobs"
-echo "$out" > "$ROOT/var/agent-jobs/${JOB_ID}.last.json"
-
-status=$(echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")
-report=$(echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('partition_report',{}).get('markdown',''))" 2>/dev/null || true)
-# human-readable summary on stderr — do not mix into stdout JSON
-echo "status=$status" >&2
-if [[ -n "$report" ]]; then
-  echo "--- partition_report ---" >&2
-  echo "$report" >&2
-fi

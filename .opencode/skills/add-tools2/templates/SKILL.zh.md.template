@@ -6,9 +6,9 @@ description: >-
 
 # {{TITLE_ZH}}
 
-本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/code/agents/.cursor/skills/{{SKILL_NAME}}/`。  
+本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/smt/agents/.opencode/skills/{{SKILL_NAME}}/`。  
 工具 CLI 由 **`{{DEPLOY_SCRIPT}}`** 单独部署（若无独立部署脚本则删除本句）。  
-**Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll.sh` 委托 Slave 执行。
+**Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll-wait.sh` 委托 Slave 执行。
 
 {{DEPLOYMENT_CONTEXT_ZH}}
 
@@ -20,7 +20,7 @@ description: >-
 
 | 角色 | 使用方式 | 是否加载本 Skill |
 |------|----------|------------------|
-| **Master** | `submit.sh` + `poll.sh`，转发 `partition_report` | **{{MASTER_LOADS}}** |
+| **Master** | `submit.sh` + `poll-wait.sh`，转发 `partition_report` | **{{MASTER_LOADS}}** |
 | **Slave 网关** | {{SLAVE_USAGE}} | **{{SLAVE_LOADS}}** |
 
 {{MASTER_FORBIDDEN_ZH}}
@@ -88,7 +88,7 @@ description: >-
 | 文件 | 说明 |
 |------|------|
 | `{{TOOL_DIR}}/{{ENTRY_SCRIPT}}` | 主入口 |
-| `deploy/slave-agent/.cursor/skills/{{SKILL_NAME}}/SKILL.md` | 英文 Skill |
+| `deploy/slave-agent/.opencode/skills/{{SKILL_NAME}}/SKILL.md` | 英文 Skill |
 | `docs/zh/{{SKILL_NAME}}.md` | 团队文档（可选） |
 
 字段详解：[reference.md](reference.md)

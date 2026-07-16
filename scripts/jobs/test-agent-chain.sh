@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# End-to-end tests: Master (OpenCode + Cursor) and Slave cn1 (OpenCode + Cursor).
+# End-to-end tests: Master and Slave cn1 via OpenCode.
 # Baseline submit/poll always runs; agent LLM tests run unless SKIP_AGENT_TESTS=1.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 JOBS_DIR="$(cd "$(dirname "$0")" && pwd)"
 GATEWAY="${GATEWAY:-cn1}"
-REMOTE_PROJECT="/home/code/agents"
-CURSOR_AGENT="${CURSOR_AGENT:-/root/.local/bin/agent}"
+REMOTE_PROJECT="/home/smt/agents"
 LOG_DIR="${LOG_DIR:-$ROOT/var/agent-jobs/test-chain}"
 mkdir -p "$LOG_DIR"
 
@@ -103,13 +102,10 @@ fi
 [[ -f "$ROOT/.opencode/agents/master-agent.md" ]] && pass "master-agent.md exists" || fail "missing master-agent.md"
 
 run_section "Preflight (cn1)"
-ssh -o ConnectTimeout=15 "$GATEWAY" "export PATH=\"/root/.local/bin:\$PATH\"
-  test -x $CURSOR_AGENT && $CURSOR_AGENT --version
+ssh -o ConnectTimeout=15 "$GATEWAY" "
   opencode agent list | grep -q 'slave-agent (primary)'
   test -f $REMOTE_PROJECT/.opencode/skills/memory-monitor/SKILL.md
-  test -f /root/.cursor/rules/slave-agent.mdc
-  test -f $REMOTE_PROJECT/.cursor/skills/memory-monitor/SKILL.md
-" && pass "cn1 preflight (agent, slave-agent, skills, rules)" || fail "cn1 preflight"
+" && pass "cn1 preflight (slave-agent, skills)" || fail "cn1 preflight"
 
 # --- Baseline: submit/poll without LLM ---
 run_section "Baseline submit/poll (Master scripts → cn1 run-slave)"
@@ -187,11 +183,11 @@ else
       fail "agent-mode partition_report assertion: $(cat "$LOG_DIR/a2a.assert.log")"
     fi
   else
-    fail "agent-mode job status=$A2A_STATUS (gateway log: /var/agent-jobs/${A2A_JOB}.agent.log)"
+    fail "agent-mode job status=$A2A_STATUS (gateway log: /home/smt/agents/var/agent-jobs/${A2A_JOB}.agent.log)"
   fi
 fi
 
-MASTER_PROMPT='向 test 分区执行 hostname -s。必须使用 ./scripts/jobs/submit.sh --partition test 提交，然后用 ./scripts/jobs/poll.sh 轮询直到 status 为 done、partial 或 failed，最后呈现 partition_report.markdown。禁止直接 ssh 到 cn1-cn10 执行命令。'
+MASTER_PROMPT='向 test 分区执行 hostname -s。必须使用 ./scripts/jobs/submit.sh --partition test 提交，然后用 ./scripts/jobs/poll-wait.sh 阻塞等待完成，最后呈现 partition_report.markdown。禁止直接 ssh 到 cn1-cn10 执行命令。'
 
 # --- 3.2 Master OpenCode ---
 run_section "Master OpenCode → test partition"
@@ -218,35 +214,7 @@ else
   fail "Master OpenCode run failed (see $OC_LOG)"
 fi
 
-# --- 3.2 Master Cursor ---
-run_section "Master Cursor agent -p → test partition"
-CUR_LOG="$LOG_DIR/master-cursor.log"
-if command -v agent >/dev/null 2>&1; then
-  if (cd "$ROOT" && agent -p "$MASTER_PROMPT" > "$CUR_LOG" 2>&1); then
-    LATEST=$(ls -t "$ROOT"/var/agent-jobs/*.last.json 2>/dev/null | head -1 || true)
-    if [[ -n "$LATEST" ]] && assert_partition_report "$LATEST" >> "$CUR_LOG" 2>&1; then
-      pass "Master Cursor partition_report ($(basename "$LATEST"))"
-    else
-      LATEST_JOB=$(grep -h '^job_id=' "$ROOT"/var/agent-jobs/*.submit.log 2>/dev/null | tail -1 | sed 's/job_id=//')
-      if [[ -n "$LATEST_JOB" ]]; then
-        poll_until_terminal "$LATEST_JOB" 20 5 > /dev/null || true
-        if [[ -f "$LOG_DIR/${LATEST_JOB}.poll.json" ]] && assert_partition_report "$LOG_DIR/${LATEST_JOB}.poll.json" >> "$CUR_LOG" 2>&1; then
-          pass "Master Cursor (supplemental poll) job=$LATEST_JOB"
-        else
-          fail "Master Cursor: no valid partition_report (see $CUR_LOG)"
-        fi
-      else
-        fail "Master Cursor: no job_id (see $CUR_LOG)"
-      fi
-    fi
-  else
-    fail "Master Cursor agent -p failed (see $CUR_LOG)"
-  fi
-else
-  skip "Master Cursor agent CLI not in PATH"
-fi
-
-SLAVE_MEM_PROMPT='检查本机内存。加载 memory-monitor skill，运行 /home/code/agents/scripts/monitor/mem-api.sh local，输出 JSON 并简要说明 mem_used_pct。禁止 ssh 到其他节点跑 free。'
+SLAVE_MEM_PROMPT='检查本机内存。加载 memory-monitor skill，运行 /home/smt/agents/scripts/monitor/mem-api.sh local，输出 JSON 并简要说明 mem_used_pct。禁止 ssh 到其他节点跑 free。'
 
 # --- 3.3 Slave OpenCode + skill ---
 run_section "Slave OpenCode + memory-monitor skill (cn1)"
@@ -261,25 +229,10 @@ else
   fail "Slave OpenCode run failed (see $SOC_LOG)"
 fi
 
-# --- 3.3 Slave Cursor + skill ---
-run_section "Slave Cursor agent -p + memory-monitor (cn1)"
-SCU_LOG="$LOG_DIR/slave-cursor.log"
-if ssh -o ConnectTimeout=15 "$GATEWAY" "export PATH=\"/root/.local/bin:\$PATH\"
-  cd $REMOTE_PROJECT
-  $CURSOR_AGENT -p $(printf %q "$SLAVE_MEM_PROMPT")" > "$SCU_LOG" 2>&1; then
-  if assert_memory_json "$SCU_LOG" >> "$SCU_LOG" 2>&1; then
-    pass "Slave Cursor mem-api local JSON"
-  else
-    fail "Slave Cursor: no memory JSON (see $SCU_LOG)"
-  fi
-else
-  fail "Slave Cursor agent -p failed (see $SCU_LOG)"
-fi
-
 # --- Optional: Slave OpenCode run-slave hostname ---
 run_section "Slave OpenCode run-slave hostname (cn1)"
 SRH_LOG="$LOG_DIR/slave-opencode-hostname.log"
-SRH_PROMPT='对 test 分区执行 hostname -s。使用 /home/code/agents/scripts/jobs/run-slave.sh submit --partition test 提交，poll 至终态，呈现 partition_report。'
+SRH_PROMPT='对 test 分区执行 hostname -s。使用 /home/smt/agents/scripts/jobs/run-slave.sh submit --partition test 提交，poll 至终态，呈现 partition_report。'
 if ssh -o ConnectTimeout=15 "$GATEWAY" "cd $REMOTE_PROJECT && opencode run --agent slave-agent --auto $(printf %q "$SRH_PROMPT")" > "$SRH_LOG" 2>&1; then
   if grep -qE 'partition_report|Partition report|hostname' "$SRH_LOG"; then
     pass "Slave OpenCode run-slave hostname (output contains report markers)"

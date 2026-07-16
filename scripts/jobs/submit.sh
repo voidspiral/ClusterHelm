@@ -23,7 +23,7 @@ read_master_default() {
 }
 
 usage() {
-  echo "Usage: $0 --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--gateway HOST] [--deadline SEC] [--runtime auto|cursor|opencode]" >&2
+  echo "Usage: $0 --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--gateway HOST] [--deadline SEC] [--runtime auto|opencode]" >&2
   echo "  Job = one decomposed task delegated to a slave (not limited to MPI)." >&2
   echo "  --command  script mode: slave runs the command verbatim on each node" >&2
   echo "  --prompt   agent mode: gateway launches the Slave agent CLI with the task (agent-to-agent)" >&2
@@ -49,7 +49,7 @@ done
 
 GATEWAY="${GATEWAY:-$(python3 "$JOBS_DIR/list-slaves.py" --partition "$PARTITION" 2>/dev/null || read_master_default default_gateway cn1)}"
 SUBMIT_TIMEOUT="$(read_master_default submit_timeout 30)"
-REMOTE_PROJECT="$(read_master_default remote_project /home/code/agents)"
+REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
 REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/jobs/run-slave.sh"
 
 REMOTE_ARGS="--partition $(printf %q "$PARTITION") --deadline $DEADLINE_SEC"

@@ -12,21 +12,21 @@ metadata:
 
 # Add Tool to Skills (`/add-tools2`)
 
-Scaffold a **tool skill** from an existing tool directory or repo path. Output uses the standard four-file layout under `deploy/slave-agent/` (Slave) or `.cursor/skills/` / `.opencode/skills/` (Master).
+Scaffold a **tool skill** from an existing tool directory or repo path. Output uses the standard four-file layout under `deploy/slave-agent/` (Slave) or `.opencode/skills/` / `.opencode/skills/` (Master).
 
 ## Where skills live (Master vs Slave)
 
 | Kind | Path | Deploy |
 |------|------|--------|
-| **This meta skill** (`add-tools2`) | `.cursor/skills/add-tools2/` **and** `.opencode/skills/add-tools2/` | Master only — keep both in sync; not deployed |
-| **Generated tool skill (slave / both)** | `deploy/slave-agent/.cursor/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
-| **Generated tool skill (master)** | `.cursor/skills/<name>/` **and** `.opencode/skills/<name>/` | Not deployed — loaded on Master workspace |
+| **This meta skill** (`add-tools2`) | `.opencode/skills/add-tools2/` **and** `.opencode/skills/add-tools2/` | Master only — keep both in sync; not deployed |
+| **Generated tool skill (slave / both)** | `deploy/slave-agent/.opencode/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
+| **Generated tool skill (master)** | `.opencode/skills/<name>/` **and** `.opencode/skills/<name>/` | Not deployed — loaded on Master workspace |
 
 **Workflow:**
 
 1. On **Master**, invoke `/add-tools2 <tool-path>` → agent writes skill files under `deploy/slave-agent/` and/or Master skill dirs.
 2. Review generated files; update `deploy/slave-agent/.opencode/agents/slave-agent.md` skills table if Slave scope.
-3. Deploy Slave skills: `./scripts/jobs/deploy-slave.sh <gateway>` (syncs `deploy/slave-agent/.cursor/skills/*` and `.opencode/*` to cn1).
+3. Deploy Slave skills: `./scripts/jobs/deploy-slave.sh <gateway>` (syncs `deploy/slave-agent/.opencode/skills/*` and `.opencode/*` to cn1).
 
 Do **not** copy `add-tools2` into `deploy/slave-agent/`.
 
@@ -46,22 +46,22 @@ Do **not** copy `add-tools2` into `deploy/slave-agent/`.
 1. **Resolve path** — must exist; list entry scripts (`*.sh`, `*-api.sh`, `*.py`), README, deploy scripts.
 2. **Read** `README.md` in the tool dir (create a stub note if absent).
 3. **Trace integration** — does it use `run-slave.sh`, `submit.sh`, preflight, `partition_report`, `--remote-cmd`?
-4. **Review existing skills** under `deploy/slave-agent/.cursor/skills/` for structure and tone (adapt to the tool — do not copy one skill verbatim).
+4. **Review existing skills** under `deploy/slave-agent/.opencode/skills/` for structure and tone (adapt to the tool — do not copy one skill verbatim).
 5. **Confirm with user** — **scope (master / slave / both)**, skill name, trigger phrases, forbidden actions — **ask when missing or ambiguous**.
 
 ## Output layout (by scope)
 
-**slave / both (Slave side)** — write Cursor + OpenCode copies:
+**slave / both (Slave side)** — write + OpenCode copies:
 
 ```
-deploy/slave-agent/.cursor/skills/<skill-name>/
+deploy/slave-agent/.opencode/skills/<skill-name>/
 deploy/slave-agent/.opencode/skills/<skill-name>/
 ```
 
-**master** — Master workspace (Cursor + OpenCode):
+**master** — Master workspace (OpenCode):
 
 ```
-.cursor/skills/<skill-name>/
+.opencode/skills/<skill-name>/
 .opencode/skills/<skill-name>/
 ├── SKILL.md (+ OpenCode frontmatter on .opencode copy)
 ├── SKILL.zh.md
@@ -78,7 +78,7 @@ Do **not** mix generated tool skills with the **meta skill** (`add-tools2`). Do 
 1. YAML frontmatter — `name`, `description` (third person, WHAT + WHEN trigger terms)
 2. Title + deployment boundary (Master vs Slave, deploy scripts)
 3. **When to use** — bullet triggers
-4. **Commands** — copy-paste absolute paths under `/home/code/agents/`
+4. **Commands** — copy-paste absolute paths under `/home/smt/agents/`
 5. **Reading output** — tables for JSON/fields
 6. **Reporting to user** — `partition_report` markdown example if partition-scoped
 7. **Job flow** — high-level wrapper vs low-level debug commands
@@ -110,7 +110,7 @@ metadata:
   deploy: deploy-slave.sh   # omit for master-only
 ```
 
-Body matches Cursor `SKILL.md`; Slave deploy paragraph notes `.opencode/skills/` under `deploy/slave-agent/`.
+Body matches `SKILL.md`; Slave deploy paragraph notes `.opencode/skills/` under `deploy/slave-agent/`.
 
 ## Post-create checklist
 
@@ -119,7 +119,7 @@ Body matches Cursor `SKILL.md`; Slave deploy paragraph notes `.opencode/skills/`
 - [ ] Description includes trigger terms (English)
 - [ ] Commands use absolute paths; no manual SSH anti-patterns documented
 - [ ] `SKILL.zh.md` present and structurally aligned
-- [ ] Master scope: both `.cursor/skills/` and `.opencode/skills/` copies written
+- [ ] Master scope: both `.opencode/skills/` and `.opencode/skills/` copies written
 - [ ] `reference.md` has JSON/path tables when tool emits structured output
 - [ ] `README.zh.md` is a short pointer (≤30 lines)
 - [ ] If new skill should appear in Slave agent routing: update `deploy/slave-agent/.opencode/agents/slave-agent.md` skills table

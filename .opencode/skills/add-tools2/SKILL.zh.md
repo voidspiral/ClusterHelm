@@ -14,17 +14,17 @@ disable-model-invocation: true
 
 | 类型 | 路径 | 部署 |
 |------|------|------|
-| **本 meta skill**（`add-tools2`） | `.cursor/skills/add-tools2/` **与** `.opencode/skills/add-tools2/` | 仅 Master，两处保持同步，不 deploy |
-| **生成的 tool skill（slave / both）** | `deploy/slave-agent/.cursor/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
-| **生成的 tool skill（master）** | `.cursor/skills/<name>/` **与** `.opencode/skills/<name>/` | 不 deploy；Master 工作区直接加载 |
+| **本 meta skill**（`add-tools2`） | `.opencode/skills/add-tools2/` **与** `.opencode/skills/add-tools2/` | 仅 Master，两处保持同步，不 deploy |
+| **生成的 tool skill（slave / both）** | `deploy/slave-agent/.opencode/skills/<name>/` + `.opencode/skills/<name>/` | `deploy-slave.sh` |
+| **生成的 tool skill（master）** | `.opencode/skills/<name>/` **与** `.opencode/skills/<name>/` | 不 deploy；Master 工作区直接加载 |
 
 **流程：**
 
 1. 在 **Master** 调用 `/add-tools2 <工具路径>` → 写入 `deploy/slave-agent/` 下 skill 文件。
 2. 审阅生成物；若需 Slave 路由，更新 `deploy/slave-agent/.opencode/agents/slave-agent.md` skills 表。
-3. 执行 `./scripts/jobs/deploy-slave.sh <gateway>`，将 `deploy/slave-agent/.cursor/skills/*` 与 `.opencode/*` 同步到网关 `/home/code/agents/`。
+3. 执行 `./scripts/jobs/deploy-slave.sh <gateway>`，将 `deploy/slave-agent/.opencode/skills/*` 与 `.opencode/*` 同步到网关 `/home/smt/agents/`。
 
-**禁止** 将 `add-tools2` 复制到 `deploy/slave-agent/`。**禁止** 将生成的 tool skill 放在仓库根 `.cursor/skills/`。
+**禁止** 将 `add-tools2` 复制到 `deploy/slave-agent/`。**禁止** 将生成的 tool skill 放在仓库根 `.opencode/skills/`。
 
 英文版：[SKILL.md](SKILL.md)
 
@@ -46,24 +46,24 @@ disable-model-invocation: true
 1. **解析路径** — 必须存在；列出入口脚本（`*.sh`、`*-api.sh`、`*.py`）、README、deploy 脚本。
 2. **阅读** 工具目录下 `README.md`（若无则记录并在 skill 中说明）。
 3. **追踪集成** — 是否使用 `run-slave.sh`、`submit.sh`、preflight、`partition_report`、`--remote-cmd`？
-4. **对照** `deploy/slave-agent/.cursor/skills/` 下已有 skill（结构与语气参考，非硬套某一工具）。
+4. **对照** `deploy/slave-agent/.opencode/skills/` 下已有 skill（结构与语气参考，非硬套某一工具）。
 5. **与用户确认** — **作用域（master / slave / both）**、名称、触发词、禁止事项（有歧义或未说明时必问）。
 
 ---
 
 ## 输出目录（按作用域）
 
-**slave / both（Slave 侧）** — 同时写 Cursor 与 OpenCode：
+**slave / both（Slave 侧）** — 同时写 与 OpenCode：
 
 ```
-deploy/slave-agent/.cursor/skills/<skill-name>/
+deploy/slave-agent/.opencode/skills/<skill-name>/
 deploy/slave-agent/.opencode/skills/<skill-name>/
 ```
 
 **master** — 仅 Master 工作区：
 
 ```
-.cursor/skills/<skill-name>/
+.opencode/skills/<skill-name>/
 .opencode/skills/<skill-name>/
 ├── SKILL.md
 ├── SKILL.zh.md
@@ -82,7 +82,7 @@ deploy/slave-agent/.opencode/skills/<skill-name>/
 1. YAML frontmatter（`name`、`description` 第三人称 + 触发词）
 2. 标题 + 部署边界（Master / Slave、deploy 脚本）
 3. **When to use** / 何时使用
-4. **Commands** — 可复制的绝对路径（`/home/code/agents/...`）
+4. **Commands** — 可复制的绝对路径（`/home/smt/agents/...`）
 5. **Reading output** — JSON/字段表
 6. **Reporting to user** — 分区任务需含 `partition_report` 示例
 7. **Job flow** — 高层封装 vs 底层调试命令
@@ -118,7 +118,7 @@ metadata:
   deploy: deploy-slave.sh   # master-only 时可省略 deploy
 ```
 
-正文与 Cursor 版一致，部署段落注明 `.opencode/skills/` 路径。
+正文与 版一致，部署段落注明 `.opencode/skills/` 路径。
 
 ---
 

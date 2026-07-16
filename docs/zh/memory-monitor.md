@@ -1,7 +1,7 @@
 # 内存监控 Skill 说明（中文）
 
-> **完整 Skill 中文版：** [`deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.zh.md`](../deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.zh.md)  
-> 英文 Skill（部署到 Slave）：[`SKILL.md`](../deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.md)
+> **完整 Skill 中文版：** [`deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md`](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md)  
+> 英文 Skill（部署到 Slave）：[`SKILL.md`](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.md)
 
 **Skill** 经 `deploy-slave.sh` 部署；**mem-api / memmon** 经 `deploy-monitor.sh` 单独部署（可选）。  
 **Master 工作区不加载本 Skill**；Master 通过 **`submit.sh --prompt`**（agent-to-agent）委托 Slave。
@@ -12,7 +12,7 @@
 
 | 角色 | 内存监控方式 | Skill |
 |------|--------------|-------|
-| **Master** | `submit.sh --prompt` + `poll.sh`，转发 `partition_report` | **无** |
+| **Master** | `submit.sh --prompt` + `poll-wait.sh`，转发 `partition_report` | **无** |
 | **Slave 网关** | `mem-api.sh local` / `partition`（或嵌套 script 作业） | **有** |
 
 ---
@@ -35,9 +35,9 @@
 ## Slave 命令（网关上执行）
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh local
-/home/code/agents/scripts/monitor/mem-api.sh partition test
-/home/code/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+/home/smt/agents/scripts/monitor/mem-api.sh local
+/home/smt/agents/scripts/monitor/mem-api.sh partition test
+/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 `mem-api.sh partition` 内部以 `memmon.py --remote-cmd` 内联执行，cn2–cn10 无需部署文件（模拟阶段）。Slave agent 也可直接加载本 Skill 后调用上述命令。
@@ -50,7 +50,7 @@
 ./scripts/jobs/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
-./scripts/jobs/poll.sh --job-id <job_id>
+./scripts/jobs/poll-wait.sh --job-id <job_id>
 ```
 
 Slave agent 收到任务后加载 Skill，在网关侧执行 `mem-api.sh partition` 或嵌套 script 作业；Master **不**直接构造 `--command`。
@@ -88,4 +88,4 @@ CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
 
 告警参考：`mem_used_pct` &lt; 85% 正常，85–95% 警告，&gt; 95% 严重。
 
-详细说明见 **[SKILL.zh.md](../deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.zh.md)**。
+详细说明见 **[SKILL.zh.md](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md)**。

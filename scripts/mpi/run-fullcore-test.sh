@@ -15,8 +15,13 @@ if [[ "$(hostname -s)" != cn1 ]]; then
     exit 0
 fi
 
-command -v mpicc >/dev/null || { echo "FAIL: mpicc not found"; exit 1; }
-command -v mpirun >/dev/null || { echo "FAIL: mpirun not found"; exit 1; }
+SLAVE_CONF="$JOBS_DIR/slave.conf"
+MPICC="${MPICC:-$(grep '^mpi_mpicc ' "$SLAVE_CONF" 2>/dev/null | awk '{print $2}')}"
+MPIRUN="${MPIRUN:-$(grep '^mpi_mpirun ' "$SLAVE_CONF" 2>/dev/null | awk '{print $2}')}"
+: "${MPICC:=mpicc}"
+: "${MPIRUN:=mpirun}"
+command -v "$MPICC" >/dev/null || { echo "FAIL: mpicc ($MPICC) not found"; exit 1; }
+command -v "$MPIRUN" >/dev/null || { echo "FAIL: mpirun ($MPIRUN) not found"; exit 1; }
 [[ -f "$SRC" ]] || { echo "FAIL: missing $SRC"; exit 1; }
 
 NODESET="$("$JOBS_DIR/resolve-partition.py" "$PARTITION")"
@@ -196,7 +201,7 @@ PY
     done
 }
 
-mpicc -O2 -o "$BIN" "$SRC"
+"$MPICC" -O2 -o "$BIN" "$SRC"
 for h in "${reachable[@]}"; do
     if [[ "$h" != "$me" ]]; then
         ssh -o ConnectTimeout=3 -o BatchMode=yes "$h" "mkdir -p $(dirname "$BIN")"
@@ -214,7 +219,7 @@ fi
 set +e
 mpi_timeout=$((DURATION + 30))
 [[ "$DURATION" -le 0 ]] && mpi_timeout=60
-timeout "$mpi_timeout" mpirun -n "$NP" --allow-run-as-root -host "$HA" "$BIN" "${MPI_ARGS[@]}" \
+timeout "$mpi_timeout" "$MPIRUN" -n "$NP" --allow-run-as-root -host "$HA" "$BIN" "${MPI_ARGS[@]}" \
     >"$tmpdir/mpirun.out" 2>&1
 rc=$?
 set -e

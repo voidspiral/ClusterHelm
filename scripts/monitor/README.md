@@ -19,7 +19,7 @@
 | `memmon.py`, `mem-api.sh` | `deploy-monitor.sh` | **not deployed** |
 | Partition memory collect | via `mem-api.sh` / nested job `--command` | inline via `--remote-cmd` |
 
-The test partition worker SSHs the job `--command` to every reachable node — a path like `python3 /home/code/agents/.../memmon.py` **fails on cn2–cn10** unless those nodes have the file.
+The test partition worker SSHs the job `--command` to every reachable node — a path like `python3 /home/smt/agents/.../memmon.py` **fails on cn2–cn10** unless those nodes have the file.
 
 ## Simulation (current)
 
@@ -49,7 +49,7 @@ A **uniform node interface** (HTTP agent, package install to all compute nodes, 
 ./scripts/jobs/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
-./scripts/jobs/poll.sh --job-id <job_id>
+./scripts/jobs/poll-wait.sh --job-id <job_id>
 
 # Script-mode fallback (only when user explicitly requests --command)
 CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)

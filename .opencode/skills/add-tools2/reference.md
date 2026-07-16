@@ -1,17 +1,17 @@
 # add-tools2 — templates and placeholders
 
-Reference for `/add-tools2` (Master-only meta skill). Example deployed skills live under `deploy/slave-agent/.cursor/skills/`.
+Reference for `/add-tools2` (Master-only meta skill). Example deployed skills live under `deploy/slave-agent/.opencode/skills/`.
 
 ## Master vs Slave layout
 
 | Artifact | Path | Notes |
 |----------|------|-------|
-| Meta skill (Cursor) | `.cursor/skills/add-tools2/` | Keep in sync with OpenCode copy |
+| Meta skill | `.opencode/skills/add-tools2/` |
 | Meta skill (OpenCode) | `.opencode/skills/add-tools2/` | Master OpenCode; never under `deploy/slave-agent/` |
-| Generated skill (Slave Cursor) | `deploy/slave-agent/.cursor/skills/<name>/` | `deploy-slave.sh` |
+| Generated skill (Slave) | `deploy/slave-agent/.opencode/skills/<name>/` | `deploy-slave.sh` |
 | Generated skill (Slave OpenCode) | `deploy/slave-agent/.opencode/skills/<name>/` | Same deploy |
-| Generated skill (Master) | `.cursor/skills/<name>/` + `.opencode/skills/<name>/` | Not deployed |
-| Remote (Slave) | `/home/code/agents/.cursor/skills/<name>/` | After deploy |
+| Generated skill (Master) | `.opencode/skills/<name>/` + `.opencode/skills/<name>/` | Not deployed |
+| Remote (Slave) | `/home/smt/agents/.opencode/skills/<name>/` | After deploy |
 
 Deploy command: `./scripts/jobs/deploy-slave.sh <gateway>`
 
@@ -42,7 +42,7 @@ Deploy command: `./scripts/jobs/deploy-slave.sh <gateway>`
 
 Skeleton files live in [templates/](templates/):
 
-- `SKILL.md.template` — Cursor English skill
+- `SKILL.md.template` — English skill
 - `SKILL.zh.md.template` — Chinese skill
 - `reference.md.template` — JSON/paths reference
 - `README.zh.md.template` — Short zh pointer
@@ -51,15 +51,15 @@ Skeleton files live in [templates/](templates/):
 
 | Scope | Output path | SKILL.md closing section |
 |-------|-------------|---------------------------|
-| **slave** | `deploy/slave-agent/.cursor/skills/<name>/` (+ OpenCode) | Master: `submit.sh --prompt` delegate; Slave: gateway commands |
-| **master** | `.cursor/skills/<name>/` | Master-local commands; Slave does not load |
+| **slave** | `deploy/slave-agent/.opencode/skills/<name>/` (+ OpenCode) | Master: `submit.sh --prompt` delegate; Slave: gateway commands |
+| **master** | `.opencode/skills/<name>/` | Master-local commands; Slave does not load |
 | **both** | Both paths above | **角色分工** table + split commands |
 
 **Always ask the user** for scope when not specified before writing files.
 
 ## Naming
 
-- Directory: `deploy/slave-agent/.cursor/skills/{{SKILL_NAME}}/`
+- Directory: `deploy/slave-agent/.opencode/skills/{{SKILL_NAME}}/`
 - OpenCode mirror: `deploy/slave-agent/.opencode/skills/{{SKILL_NAME}}/`
 - `--task` flag: match `{{SKILL_NAME}}` when job-scoped
 - Frontmatter `name`: exactly `{{SKILL_NAME}}` (English SKILL.md); `{{SKILL_NAME}}-zh` (SKILL.zh.md)
@@ -85,10 +85,10 @@ When the new skill is user-facing on Slave, add a row to `deploy/slave-agent/.op
 
 ## Validation
 
-Before finishing, skim an existing skill under `deploy/slave-agent/.cursor/skills/` for consistency:
+Before finishing, skim an existing skill under `deploy/slave-agent/.opencode/skills/` for consistency:
 
 1. Deployment boundary stated in first paragraphs
-2. Absolute paths under `/home/code/agents/`
+2. Absolute paths under `/home/smt/agents/`
 3. Forbidden section present
 4. Both zh files exist
 5. SKILL.md line count < 500

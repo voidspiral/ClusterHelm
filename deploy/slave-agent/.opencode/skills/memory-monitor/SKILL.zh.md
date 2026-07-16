@@ -8,9 +8,9 @@ description: >-
 
 # 内存监控（Slave 网关）
 
-本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/code/agents/.cursor/skills/memory-monitor/`。  
+本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/smt/agents/.opencode/skills/memory-monitor/`。  
 监控 CLI（`memmon.py`、`mem-api.sh`）由 **`deploy-monitor.sh`** 单独部署（可选）。  
-**Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll.sh` 委托 Slave 执行。
+**Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll-wait.sh` 委托 Slave 执行。
 
 在**网关上**使用 `mem-api.sh`；复用 `run-slave.sh` 的预检、节点排除与作业 JSON。禁止手工 SSH 各节点跑 `free` / `meminfo`。
 
@@ -22,7 +22,7 @@ description: >-
 
 | 角色 | 内存监控方式 | 是否加载本 Skill |
 |------|--------------|------------------|
-| **Master** | `submit.sh` + `poll.sh`，转发 `partition_report` | **否** |
+| **Master** | `submit.sh` + `poll-wait.sh`，转发 `partition_report` | **否** |
 | **Slave 网关** | `mem-api.sh local` / `partition` | **是** |
 
 Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行。
@@ -64,7 +64,7 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 ### 本机（仅当前节点）
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh local
+/home/smt/agents/scripts/monitor/mem-api.sh local
 ```
 
 返回当前节点单行 JSON（网关 cn1 同时是计算节点）。
@@ -72,13 +72,13 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 ### 整个分区
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh partition test
+/home/smt/agents/scripts/monitor/mem-api.sh partition test
 ```
 
 仅检查子集：
 
 ```bash
-/home/code/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 内部流程：`run-slave.sh submit`，`--command` 为 `$(python3 memmon.py --remote-cmd)` 的输出 → 对各可达、未排除节点执行 → 轮询至终态 → 聚合 JSON。
@@ -184,11 +184,11 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 底层等价（仅调试）：
 
 ```bash
-/home/code/agents/scripts/jobs/run-slave.sh submit \
+/home/smt/agents/scripts/jobs/run-slave.sh submit \
   --partition test \
-  --command "$(python3 /home/code/agents/scripts/monitor/memmon.py --remote-cmd)" \
+  --command "$(python3 /home/smt/agents/scripts/monitor/memmon.py --remote-cmd)" \
   --task memory-monitor
-/home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
+/home/smt/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
 ```
 
 ---
@@ -201,7 +201,7 @@ Master 通过 **agent-to-agent** 委托，不下发 `mem-api.sh` 或 `memmon.py`
 ./scripts/jobs/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
-./scripts/jobs/poll.sh --job-id <job_id>
+./scripts/jobs/poll-wait.sh --job-id <job_id>
 ```
 
 Slave agent 在网关侧加载本 Skill 并执行 `mem-api.sh partition`（或嵌套 script 作业）。Master 从 `partition_report.markdown` 向用户汇报。
@@ -231,7 +231,7 @@ CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
 | `scripts/monitor/memmon.py` | 采集程序 |
 | `scripts/monitor/mem-api.sh` | CLI 入口 |
 | `scripts/monitor/deploy-monitor.sh` | 网关部署监控脚本 |
-| `deploy/slave-agent/.cursor/skills/memory-monitor/SKILL.md` | 英文 Skill |
+| `deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.md` | 英文 Skill |
 | `docs/zh/memory-monitor.md` | 团队阅读用中文文档（仓库内，不部署） |
 
 字段详解：[reference.md](reference.md)

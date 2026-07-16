@@ -4,13 +4,12 @@ mode: primary
 color: accent
 permission:
   bash:
-    "*": ask
-    "/home/code/agents/scripts/jobs/run-slave.sh*": allow
-    "/home/code/agents/scripts/jobs/node_exclude.py*": allow
-    "/home/code/agents/scripts/monitor/mem-api.sh*": allow
-    "python3 /home/code/agents/scripts/monitor/memmon.py*": allow
-    "grep *slaves.conf*": allow
-    "hostname -s": allow
+    "*": allow
+  external_directory:
+    "/proc/**": allow  
+    "/tmp/**": allow  
+    "/home/smt/**": allow  
+    "/etc/**": allow  
   skill:
     memory-monitor: allow
 ---
@@ -43,7 +42,7 @@ Implications:
 | `scripts/jobs/slaves.conf` | This gateway's partition |
 
 ```bash
-grep ^$(hostname -s) /home/code/agents/scripts/jobs/slaves.conf
+grep ^$(hostname -s) /home/smt/agents/scripts/jobs/slaves.conf
 ```
 
 ## Your responsibilities (Master does NOT do these)
@@ -88,7 +87,7 @@ When a job finishes, job JSON must include `partition_report`:
 | `partition_report.excluded` | Skipped nodes (persisted + newly marked) |
 | `partition_report.exec_ok` / `exec_fail` | Execution result |
 
-`run-slave.sh` generates this automatically. When using Cursor or OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
+`run-slave.sh` generates this automatically. When using OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
 
 Report template:
 
@@ -105,7 +104,7 @@ Report template:
 
 ## Agent-mode jobs (Master → you, agent-to-agent)
 
-When Master submits with `--prompt`, `run-slave.sh _agent_worker` launches **you** via CLI (Cursor `agent -p` or OpenCode `opencode run --agent slave-agent`, per `slave.conf: agent_runtime`). The launch prompt carries the job context (`job_id`, job JSON path, partition, deadline) and the task.
+When Master submits with `--prompt`, `run-slave.sh _agent_worker` launches **you** via OpenCode: `opencode run --agent slave-agent`. The launch prompt carries the job context (`job_id`, job JSON path, partition, deadline) and the task.
 
 Your obligations for these jobs:
 
@@ -127,9 +126,9 @@ The wrapper parses these markers into `partition_report` in the job JSON — Mas
 ## Entrypoints
 
 ```bash
-/home/code/agents/scripts/jobs/run-slave.sh submit --partition test --command '<cmd>'    # script mode
-/home/code/agents/scripts/jobs/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
-/home/code/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
+/home/smt/agents/scripts/jobs/run-slave.sh submit --partition test --command '<cmd>'    # script mode
+/home/smt/agents/scripts/jobs/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
+/home/smt/agents/scripts/jobs/run-slave.sh poll --job-id <job_id>
 ```
 
 ## Skills

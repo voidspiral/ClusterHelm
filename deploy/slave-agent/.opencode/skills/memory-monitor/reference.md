@@ -50,16 +50,16 @@ Values are rounded to whole MB except `mem_used_pct`.
 
 | Artifact | Path |
 |----------|------|
-| Collector | `/home/code/agents/scripts/monitor/memmon.py` |
-| CLI | `/home/code/agents/scripts/monitor/mem-api.sh` |
-| Job runner | `/home/code/agents/scripts/jobs/run-slave.sh` |
+| Collector | `/home/smt/agents/scripts/monitor/memmon.py` |
+| CLI | `/home/smt/agents/scripts/monitor/mem-api.sh` |
+| Job runner | `/home/smt/agents/scripts/jobs/run-slave.sh` |
 
 ## Partition remote command (simulation)
 
 `memmon.py` on disk: gateway only (`deploy-monitor.sh`). Partition jobs use:
 
 ```bash
-python3 /home/code/agents/scripts/monitor/memmon.py --remote-cmd
+python3 /home/smt/agents/scripts/monitor/memmon.py --remote-cmd
 ```
 
 Output is a one-liner (`echo <base64> | base64 -d | python3`) that runs the same collector on cn2–cn10 without a deployed file. Future releases will use a per-node API or uniform install instead.

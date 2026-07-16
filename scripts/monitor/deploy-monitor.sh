@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MONITOR_DIR="$(cd "$(dirname "$0")" && pwd)"
 JOBS_DIR="$ROOT/scripts/jobs"
 GATEWAY="${1:-cn1}"
-REMOTE_PROJECT="/home/code/agents"
+REMOTE_PROJECT="/home/smt/agents"
 
 echo "== Deploy memory monitor to $GATEWAY =="
 
