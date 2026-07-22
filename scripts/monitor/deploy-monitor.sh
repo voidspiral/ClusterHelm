@@ -4,14 +4,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MONITOR_DIR="$(cd "$(dirname "$0")" && pwd)"
-JOBS_DIR="$ROOT/scripts/jobs"
+MASTER_CONF="$ROOT/master/config/master.conf"
 GATEWAY="${1:-cn1}"
 REMOTE_PROJECT="/home/smt/agents"
 
 echo "== Deploy memory monitor to $GATEWAY =="
 
 ssh -o ConnectTimeout=15 "$GATEWAY" \
-  "mkdir -p '$REMOTE_PROJECT/scripts/monitor' '$REMOTE_PROJECT/scripts/jobs'"
+  "mkdir -p '$REMOTE_PROJECT/scripts/monitor' '$REMOTE_PROJECT/config'"
 
 scp -o ConnectTimeout=15 \
   "$MONITOR_DIR/memmon.py" \
@@ -19,9 +19,11 @@ scp -o ConnectTimeout=15 \
   "$GATEWAY:$REMOTE_PROJECT/scripts/monitor/"
 
 # mem-api.sh reads poll_backoff / remote_project from master.conf when present
-scp -o ConnectTimeout=15 \
-  "$JOBS_DIR/master.conf" \
-  "$GATEWAY:$REMOTE_PROJECT/scripts/jobs/"
+if [[ -f "$MASTER_CONF" ]]; then
+  scp -o ConnectTimeout=15 \
+    "$MASTER_CONF" \
+    "$GATEWAY:$REMOTE_PROJECT/config/master.conf"
+fi
 
 ssh "$GATEWAY" "chmod +x \
   '$REMOTE_PROJECT/scripts/monitor/memmon.py' \

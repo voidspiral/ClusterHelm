@@ -1,7 +1,7 @@
 # 内存监控 Skill 说明（中文）
 
-> **完整 Skill 中文版：** [`deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md`](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md)  
-> 英文 Skill（部署到 Slave）：[`SKILL.md`](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.md)
+> **完整 Skill 中文版：** [`slave/.opencode/skills/memory-monitor/SKILL.zh.md`](../../slave/.opencode/skills/memory-monitor/SKILL.zh.md)  
+> 英文 Skill（部署到 Slave）：[`SKILL.md`](../../slave/.opencode/skills/memory-monitor/SKILL.md)
 
 **Skill** 经 `deploy-slave.sh` 部署；**mem-api / memmon** 经 `deploy-monitor.sh` 单独部署（可选）。  
 **Master 工作区不加载本 Skill**；Master 通过 **`submit.sh --prompt`**（agent-to-agent）委托 Slave。
@@ -47,10 +47,10 @@
 ## Master 委托（agent-to-agent，无 Skill）
 
 ```bash
-./scripts/jobs/submit.sh --partition test --prompt \
+./master/scripts/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
-./scripts/jobs/poll-wait.sh --job-id <job_id>
+./master/scripts/poll-wait.sh --job-id <job_id>
 ```
 
 Slave agent 收到任务后加载 Skill，在网关侧执行 `mem-api.sh partition` 或嵌套 script 作业；Master **不**直接构造 `--command`。
@@ -59,7 +59,7 @@ Script 模式回退（仅当用户明确要求 `--command`）：
 
 ```bash
 CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
-./scripts/jobs/submit.sh --partition test --command "$CMD" --task memory-monitor
+./master/scripts/submit.sh --partition test --command "$CMD" --task memory-monitor
 ```
 
 ---
@@ -67,7 +67,7 @@ CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
 ## 部署
 
 ```bash
-./scripts/jobs/deploy-slave.sh cn1
+./scripts/deploy/deploy-slave.sh cn1
 ./scripts/monitor/deploy-monitor.sh cn1   # 需要 mem-api 时
 ```
 
@@ -88,4 +88,4 @@ CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
 
 告警参考：`mem_used_pct` &lt; 85% 正常，85–95% 警告，&gt; 95% 严重。
 
-详细说明见 **[SKILL.zh.md](../deploy/slave-agent/.opencode/skills/memory-monitor/SKILL.zh.md)**。
+详细说明见 **[SKILL.zh.md](../../slave/.opencode/skills/memory-monitor/SKILL.zh.md)**。

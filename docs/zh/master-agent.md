@@ -16,12 +16,12 @@
 **Master agent → Slave agent LLM**，不是 Master → bash worker。
 
 ```bash
-./scripts/jobs/list-slaves.py --partition test   # 确认网关（cn1）
+./master/scripts/list-slaves.py --partition test   # 确认网关（cn1）
 
 # 主路径：自然语言任务 → 网关启动 Slave agent CLI
-./scripts/jobs/submit.sh --partition test --prompt '<给 Slave agent 的任务说明>' [--runtime auto|opencode]
+./master/scripts/submit.sh --partition test --prompt '<给 Slave agent 的任务说明>' [--runtime auto|opencode]
 
-./scripts/jobs/poll-wait.sh --job-id <job_id>
+./master/scripts/poll-wait.sh --job-id <job_id>
 ```
 
 | 步骤 | 执行者 | 动作 |
@@ -44,14 +44,14 @@
 
 ```bash
 # 提交所有独立任务
-OUT_A=$(./scripts/jobs/submit.sh --partition test --prompt 'task A' --task job-a)
-OUT_B=$(./scripts/jobs/submit.sh --partition dev --prompt 'task B' --task job-b)
+OUT_A=$(./master/scripts/submit.sh --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./master/scripts/submit.sh --partition dev --prompt 'task B' --task job-b)
 JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')
 JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 
 # 并行阻塞等待
-./scripts/jobs/poll-wait.sh --job-id "$JOB_A"
-./scripts/jobs/poll-wait.sh --job-id "$JOB_B"
+./master/scripts/poll-wait.sh --job-id "$JOB_A"
+./master/scripts/poll-wait.sh --job-id "$JOB_B"
 
 # 分别呈现 partition_report
 ```
@@ -61,7 +61,7 @@ JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 `--prompt` 应写成 **给 Slave agent 的任务简报**（意图 + 约束），不是 shell 一行命令。示例：
 
 ```bash
-./scripts/jobs/submit.sh --partition test --prompt \
+./master/scripts/submit.sh --partition test --prompt \
   '检查 test 分区各节点 hostname，preflight 后执行，汇总可达性与 per-node 结果，按契约输出 partition report' \
   --task hostname-check
 ```
@@ -73,7 +73,7 @@ JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 仅在用户 **明确要求** script/确定性模式，或固定一行命令、无需判断时使用 `--command`：
 
 ```bash
-./scripts/jobs/submit.sh --partition test --command '<精确 shell 命令>'
+./master/scripts/submit.sh --partition test --command '<精确 shell 命令>'
 ```
 
 这会绕过 Slave agent LLM，直接跑 `run-slave.sh _worker`。**不要作为默认** — 正常分区任务一律优先 `--prompt`。
@@ -92,12 +92,12 @@ JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 
 ## 内存监控（agent-to-agent）
 
-**`memory-monitor` Skill 仅属于 Slave**（源码在 `deploy/slave-agent/.opencode/skills/`，部署到网关）。Master 工作区**不加载、不遵循**该 Skill。
+**`memory-monitor` Skill 仅属于 Slave**（源码在 `slave/.opencode/skills/`，部署到网关）。Master 工作区**不加载、不遵循**该 Skill。
 
 用户询问分区内存 / RAM / swap 时，**通过 `--prompt` 委托**：
 
 ```bash
-./scripts/jobs/submit.sh --partition test --prompt \
+./master/scripts/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
 ```
@@ -110,7 +110,7 @@ Script 模式回退（**仅当用户明确要求 `--command`**）：
 
 ```bash
 CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
-./scripts/jobs/submit.sh --partition test --command "$CMD" --task memory-monitor
+./master/scripts/submit.sh --partition test --command "$CMD" --task memory-monitor
 ```
 
 任务终态后从 JSON 读取 **`partition_report.markdown`**：

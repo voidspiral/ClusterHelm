@@ -131,9 +131,9 @@ flowchart LR
 ```
 
 ```bash
-./scripts/jobs/deploy-all.sh cn1          # Master (local) + Slave (cn1)
-./scripts/jobs/deploy-master.sh           # Master only
-./scripts/jobs/deploy-slave.sh cn1        # Slave only
+./scripts/deploy/deploy-all.sh cn1          # Master (local) + Slave (cn1)
+./scripts/deploy/deploy-master.sh           # Master only
+./scripts/deploy/deploy-slave.sh cn1        # Slave only
 ```
 
 | Side | OpenCode default |
@@ -193,7 +193,7 @@ Both modes produce the same `partition_report` in job JSON; Master reporting flo
 
 Agent mode always uses OpenCode: `opencode run --agent slave-agent`.
 
-Config in `scripts/jobs/slave.conf`:
+Config in `slave/config/slave.conf`:
 
 ```ini
 agent_opencode_bin opencode
@@ -218,17 +218,23 @@ agent_opencode_agent slave-agent
 ```
 Master (workspace)                    Slave gateway (cn1)
 ────────────────────────────────────────────────────────────────
-.opencode/agents/master-agent.md      (Master only)
+master/.opencode/agents/master-agent.md (Master only)
 opencode.json (master-agent)
+master/config/master.conf
+master/scripts/{submit,poll,poll-wait}.sh
+shared/{partitions,slaves}.conf
 
-deploy/slave-agent/              →   deployed via deploy-slave.sh
-  .opencode/agents/slave-agent.md →  .opencode/agents/slave-agent.md
-  opencode.json (slave-agent)    →   opencode.json
+slave/              →   deployed flat to /home/smt/agents/ via deploy-slave.sh
+  .opencode/        →   .opencode/
+  opencode.json     →   opencode.json
+  config/slave.conf →   config/slave.conf
+  scripts/run-slave.sh → scripts/run-slave.sh
+  scripts/preflight/   → scripts/preflight/
+  shared/              → shared/
 
-scripts/jobs/submit.sh      SSH →    (Master only)
-scripts/jobs/poll-wait.sh        SSH →    run-slave.sh poll
-                                     run-slave.sh submit / _worker / _agent_worker
-                                     slave.conf
+master/scripts/submit.sh      SSH →    (Master only)
+master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait (blocks until terminal)
+                                     scripts/run-slave.sh submit / _worker / _agent_worker
 var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.json
 ```
 
@@ -238,13 +244,13 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 
 | File | Example | Purpose |
 |------|---------|---------|
-| `partitions.conf` | `test cn[1-10]` | Logical partition → nodeset |
-| `slaves.conf` | `cn1 test cn[1-10]` | Gateway registry |
-| `master.conf` | `default_gateway cn1` | Master defaults, poll backoff |
-| `slave.conf` | `agent_opencode_bin opencode` | Exclusion policy + agent CLI |
+| `shared/partitions.conf` | `test cn[1-10]` | Logical partition → nodeset |
+| `shared/slaves.conf` | `cn1 test cn[1-10]` | Gateway registry |
+| `master/config/master.conf` | `default_gateway cn1` | Master defaults, poll backoff |
+| `slave/config/slave.conf` | `agent_opencode_bin opencode` | Exclusion policy + agent CLI |
 
 ```bash
-./scripts/jobs/list-slaves.py --partition test   # → cn1
+./master/scripts/list-slaves.py --partition test   # → cn1
 ```
 
 ---

@@ -8,7 +8,7 @@
 | [`deploy-monitor.sh`](deploy-monitor.sh) | **This directory** only: `memmon.py`, `mem-api.sh`, `master.conf` (poll settings for mem-api) on gateway |
 
 ```bash
-./scripts/jobs/deploy-slave.sh cn1
+./scripts/deploy/deploy-slave.sh cn1
 ./scripts/monitor/deploy-monitor.sh cn1   # optional
 ```
 
@@ -46,12 +46,12 @@ A **uniform node interface** (HTTP agent, package install to all compute nodes, 
 ./scripts/monitor/mem-api.sh partition test
 
 # Master delegate (agent-to-agent — default)
-./scripts/jobs/submit.sh --partition test --prompt \
+./master/scripts/submit.sh --partition test --prompt \
   '检查 test 分区各节点内存与 swap，加载 memory-monitor skill，preflight 后采集，汇总 mem_used_pct 并输出 partition report' \
   --task memory-monitor
-./scripts/jobs/poll-wait.sh --job-id <job_id>
+./master/scripts/poll-wait.sh --job-id <job_id>
 
 # Script-mode fallback (only when user explicitly requests --command)
 CMD=$(python3 scripts/monitor/memmon.py --remote-cmd)
-./scripts/jobs/submit.sh --partition test --command "$CMD" --task memory-monitor
+./master/scripts/submit.sh --partition test --command "$CMD" --task memory-monitor
 ```

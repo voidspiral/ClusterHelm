@@ -8,36 +8,41 @@ Master/Slave agents for async partition execution. Supports **OpenCode** runtime
 
 | Layer | Files | Role |
 |-------|-------|------|
-| **Facts** | `partitions.conf`, `slaves.conf`, `master.conf`, `slave.conf` | Partitions, slave registry, timeouts, runtime defaults |
-| **Behavior** | `.opencode/agents/*.md`, `.opencode/skills/` | How Master/Slave agents submit, poll, preflight, and delegate; points at config |
+| **Facts** | `shared/partitions.conf`, `shared/slaves.conf`, `master/config/master.conf`, `slave/config/slave.conf` | Partitions, slave registry, timeouts, runtime defaults |
+| **Behavior** | `master/.opencode/agents/*.md`, `slave/.opencode/agents/*.md`, skills | How Master/Slave agents submit, poll, preflight, and delegate; points at config |
 
 ```bash
-./scripts/jobs/list-slaves.py          # show managed slaves
-./scripts/jobs/list-slaves.py --json
+./master/scripts/list-slaves.py          # show managed slaves
+./master/scripts/list-slaves.py --json
 ```
 
 ## Layout
 
 ```
-.opencode/agents/master-agent.md        # Master agent (OpenCode)
-.opencode/skills/                       # Master skills (e.g. add-tools2)
-opencode.json                           # default_agent=master-agent
+master/
+  .opencode/agents/master-agent.md   # Master agent (OpenCode)
+  .opencode/skills/                  # Master skills (e.g. add-tools2)
+  opencode.json                      # default_agent=master-agent
+  config/master.conf                 # defaults, poll backoff
+  scripts/                           # submit.sh, poll.sh, poll-wait.sh, list-slaves.py
 
-deploy/slave-agent/
-  .opencode/agents/slave-agent.md       # Slave agent (OpenCode, deploy source)
-  .opencode/skills/                     # Slave skills (e.g. memory-monitor)
-  opencode.json                         # default_agent=slave-agent
+slave/
+  .opencode/agents/slave-agent.md    # Slave agent (OpenCode, deploy source)
+  .opencode/skills/                  # Slave skills (e.g. memory-monitor)
+  opencode.json                      # default_agent=slave-agent
+  config/slave.conf                  # node exclusion + agent_opencode_bin
+  scripts/run-slave.sh
+  scripts/preflight/                 # job_preflight.py, node_exclude.py
 
-scripts/jobs/
-  partitions.conf    # test → cn[1-10]
-  slaves.conf        # cn1 → test
-  master.conf        # defaults, poll backoff
-  slave.conf         # node exclusion + agent_opencode_bin
-  deploy-master.sh   # deploy Master agent (local or remote host)
-  deploy-slave.sh    # deploy Slave agent to gateway
-  deploy-all.sh      # deploy Master + Slave in one step
-  list-slaves.py     # registry + routing
-  submit.sh / poll-wait.sh / run-slave.sh
+shared/
+  partitions.conf                    # test → cn[1-10]
+  slaves.conf                        # cn1 → test
+  resolve-partition.py
+
+scripts/deploy/                      # deploy-master/slave/all, test-agent-chain
+scripts/monitor/                     # memmon + deploy-monitor (optional)
+scripts/mpi/
+
 var/agent-jobs/
 ```
 
@@ -45,9 +50,9 @@ var/agent-jobs/
 
 | Runtime | Master | Slave (gateway) |
 |---------|--------|-----------------|
-| **OpenCode** | `.opencode/agents/master-agent.md` | `.opencode/agents/slave-agent.md` + skills |
+| **OpenCode** | `master/.opencode/agents/master-agent.md` | `slave/.opencode/agents/slave-agent.md` + skills |
 
-Gateway `slave.conf: agent_opencode_bin` selects the OpenCode CLI.
+Run Master OpenCode from `master/` (that directory is the OpenCode project root). Gateway `slave/config/slave.conf: agent_opencode_bin` selects the OpenCode CLI.
 
 ## Deploy (sync Master + Slave)
 
@@ -59,12 +64,12 @@ Gateway `slave.conf: agent_opencode_bin` selects the OpenCode CLI.
 
 ```bash
 # Deploy both sides (Master local + Slave cn1)
-./scripts/jobs/deploy-all.sh cn1
+./scripts/deploy/deploy-all.sh cn1
 
 # Or separately
-./scripts/jobs/deploy-master.sh              # local Master
-./scripts/jobs/deploy-master.sh <master-host>  # remote Master over SSH
-./scripts/jobs/deploy-slave.sh cn1           # Slave gateway
+./scripts/deploy/deploy-master.sh              # local Master
+./scripts/deploy/deploy-master.sh <master-host>  # remote Master over SSH
+./scripts/deploy/deploy-slave.sh cn1           # Slave gateway
 
 # Optional: memory monitor CLI on gateway
 ./scripts/monitor/deploy-monitor.sh cn1
@@ -74,16 +79,16 @@ After deploy, each side uses its own OpenCode default agent:
 
 | Node | `opencode.json` | OpenCode agent |
 |------|-----------------|----------------|
-| Master | `default_agent: master-agent` | `.opencode/agents/master-agent.md` |
-| Slave (cn1) | `default_agent: slave-agent` | `deploy/slave-agent/.opencode/agents/slave-agent.md` |
+| Master | `default_agent: master-agent` | `master/.opencode/agents/master-agent.md` |
+| Slave (cn1) | `default_agent: slave-agent` | `slave/.opencode/agents/slave-agent.md` |
 
 ## Quick start
 
 ```bash
-./scripts/jobs/deploy-all.sh cn1            # sync Master + Slave first
-./scripts/jobs/submit.sh --partition test --prompt '<task>'        # agent mode (default, agent-to-agent)
-./scripts/jobs/submit.sh --partition test --command 'hostname'     # script mode (exception only)
-./scripts/jobs/poll-wait.sh --job-id job-...
+./scripts/deploy/deploy-all.sh cn1            # sync Master + Slave first
+./master/scripts/submit.sh --partition test --prompt '<task>'        # agent mode (default, agent-to-agent)
+./master/scripts/submit.sh --partition test --command 'hostname'     # script mode (exception only)
+./master/scripts/poll-wait.sh --job-id job-...
 ```
 
 Gateway auto-selected from `slaves.conf` unless `--gateway` is set.

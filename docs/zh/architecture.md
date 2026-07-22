@@ -133,9 +133,9 @@ flowchart LR
 ```
 
 ```bash
-./scripts/jobs/deploy-all.sh cn1          # Master（本机）+ Slave（cn1）
-./scripts/jobs/deploy-master.sh           # 仅 Master
-./scripts/jobs/deploy-slave.sh cn1        # 仅 Slave
+./scripts/deploy/deploy-all.sh cn1          # Master（本机）+ Slave（cn1）
+./scripts/deploy/deploy-master.sh           # 仅 Master
+./scripts/deploy/deploy-slave.sh cn1        # 仅 Slave
 ```
 
 | 端 | OpenCode 默认 agent |
@@ -193,7 +193,7 @@ sequenceDiagram
 
 Agent 模式始终使用 OpenCode：`opencode run --agent slave-agent`。
 
-`scripts/jobs/slave.conf` 配置：
+`slave/config/slave.conf` 配置：
 
 ```ini
 agent_opencode_bin opencode
@@ -218,17 +218,23 @@ agent_opencode_agent slave-agent
 ```
 Master（工作区）                      Slave 网关（cn1）
 ────────────────────────────────────────────────────────────────
-.opencode/agents/master-agent.md      （仅 Master）
+master/.opencode/agents/master-agent.md （仅 Master）
 opencode.json (master-agent)
+master/config/master.conf
+master/scripts/{submit,poll,poll-wait}.sh
+shared/{partitions,slaves}.conf
 
-deploy/slave-agent/              →   经 deploy-slave.sh 部署
-  .opencode/agents/slave-agent.md →  .opencode/agents/slave-agent.md
-  opencode.json (slave-agent)    →   opencode.json
+slave/              →   经 deploy-slave.sh 部署为扁平 /home/smt/agents/
+  .opencode/        →   .opencode/
+  opencode.json     →   opencode.json
+  config/slave.conf →   config/slave.conf
+  scripts/run-slave.sh → scripts/run-slave.sh
+  scripts/preflight/   → scripts/preflight/
+  shared/              → shared/
 
-scripts/jobs/submit.sh      SSH →    （仅 Master）
-scripts/jobs/poll-wait.sh  SSH →    run-slave.sh wait（阻塞至终态）
-                                     run-slave.sh submit / _worker / _agent_worker
-                                     slave.conf
+master/scripts/submit.sh      SSH →    （仅 Master）
+master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait（阻塞至终态）
+                                     scripts/run-slave.sh submit / _worker / _agent_worker
 var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.json
 ```
 
@@ -238,13 +244,13 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 
 | 文件 | 示例 | 作用 |
 |------|------|------|
-| `partitions.conf` | `test cn[1-10]` | 逻辑分区 → 节点集 |
-| `slaves.conf` | `cn1 test cn[1-10]` | 网关注册表 |
-| `master.conf` | `default_gateway cn1` | Master 默认与轮询策略 |
-| `slave.conf` | `agent_opencode_bin opencode` | 排除策略 + agent CLI |
+| `shared/partitions.conf` | `test cn[1-10]` | 逻辑分区 → 节点集 |
+| `shared/slaves.conf` | `cn1 test cn[1-10]` | 网关注册表 |
+| `master/config/master.conf` | `default_gateway cn1` | Master 默认与轮询策略 |
+| `slave/config/slave.conf` | `agent_opencode_bin opencode` | 排除策略 + agent CLI |
 
 ```bash
-./scripts/jobs/list-slaves.py --partition test   # → cn1
+./master/scripts/list-slaves.py --partition test   # → cn1
 ```
 
 ---

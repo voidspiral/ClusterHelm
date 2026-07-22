@@ -46,8 +46,8 @@ Script 模式：`_worker` 自动先预检再执行。Agent 模式：`_agent_work
 持久化：`$AGENT_JOB_DIR/node-exclusions.json`（各网关独立）
 
 ```bash
-python3 scripts/jobs/node_exclude.py list --partition test
-python3 scripts/jobs/node_exclude.py clear --partition test --host cn5
+python3 /home/smt/agents/scripts/preflight/node_exclude.py list --partition test
+python3 /home/smt/agents/scripts/preflight/node_exclude.py clear --partition test --host cn5
 ```
 
 Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exclude_reason`、`ping`/`ssh`。

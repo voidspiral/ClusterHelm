@@ -5,17 +5,32 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MONITOR_DIR="$(cd "$(dirname "$0")" && pwd)"
-JOBS_DIR="$ROOT/scripts/jobs"
+CONFIG_DIR="${AGENT_HOME:-}/config"
+# Prefer deployed flat config/, else monorepo master/config
+if [[ -z "${AGENT_HOME:-}" || ! -d "$CONFIG_DIR" ]]; then
+  if [[ -d "$ROOT/master/config" ]]; then
+    CONFIG_DIR="$ROOT/master/config"
+  else
+    CONFIG_DIR="$ROOT/config"
+  fi
+fi
 MEMMON="$MONITOR_DIR/memmon.py"
-RUN_SLAVE="$JOBS_DIR/run-slave.sh"
+# Gateway flat: scripts/run-slave.sh; monorepo: slave/scripts/run-slave.sh
+if [[ -x "$ROOT/scripts/run-slave.sh" ]]; then
+  RUN_SLAVE="$ROOT/scripts/run-slave.sh"
+elif [[ -x "$ROOT/slave/scripts/run-slave.sh" ]]; then
+  RUN_SLAVE="$ROOT/slave/scripts/run-slave.sh"
+else
+  RUN_SLAVE="${AGENT_HOME:-/home/smt/agents}/scripts/run-slave.sh"
+fi
 POLL_INTERVAL=2
 POLL_MAX_ROUNDS=60
 
 read_master_default() {
   local key="$1" fallback="$2"
-  if [[ -f "$JOBS_DIR/master.conf" ]]; then
+  if [[ -f "$CONFIG_DIR/master.conf" ]]; then
     local v
-    v=$(grep -E "^${key}[[:space:]]" "$JOBS_DIR/master.conf" | awk '{print $2}' | head -1)
+    v=$(grep -E "^${key}[[:space:]]" "$CONFIG_DIR/master.conf" | awk '{print $2}' | head -1)
     [[ -n "$v" ]] && echo "$v" && return
   fi
   echo "$fallback"
