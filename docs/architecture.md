@@ -220,17 +220,17 @@ Master (workspace)                    Slave gateway (cn1)
 ────────────────────────────────────────────────────────────────
 master/.opencode/agents/master-agent.md (Master only)
 opencode.json (master-agent)
-master/config/master.conf
-master/scripts/{submit,poll,poll-wait}.sh
-shared/{partitions,slaves}.conf
+master/config/{master,partitions,slaves}.conf
+master/scripts/{submit,poll,poll-wait,list-slaves}
 
 slave/              →   deployed flat to /home/smt/agents/ via deploy-slave.sh
   .opencode/        →   .opencode/
   opencode.json     →   opencode.json
   config/slave.conf →   config/slave.conf
+  (from Master) partitions.conf → config/partitions.conf
   scripts/run-slave.sh → scripts/run-slave.sh
+  scripts/resolve-partition.py → scripts/resolve-partition.py
   scripts/preflight/   → scripts/preflight/
-  shared/              → shared/
 
 master/scripts/submit.sh      SSH →    (Master only)
 master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait (blocks until terminal)
@@ -244,8 +244,8 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 
 | File | Example | Purpose |
 |------|---------|---------|
-| `shared/partitions.conf` | `test cn[1-10]` | Logical partition → nodeset |
-| `shared/slaves.conf` | `cn1 test cn[1-10]` | Gateway registry |
+| `master/config/partitions.conf` | `test cn[1-10]` | Logical partition → nodeset (SoT; deployed to gateway) |
+| `master/config/slaves.conf` | `cn1 test cn[1-10]` | Gateway registry (Master only) |
 | `master/config/master.conf` | `default_gateway cn1` | Master defaults, poll backoff |
 | `slave/config/slave.conf` | `agent_opencode_bin opencode` | Exclusion policy + agent CLI |
 

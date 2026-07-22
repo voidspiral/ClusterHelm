@@ -6,12 +6,10 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 MASTER_ROOT = SCRIPT_DIR.parent
-# Flat deploy: <root>/shared; monorepo: <repo>/shared (sibling of master/)
-_shared_candidates = [MASTER_ROOT / "shared", MASTER_ROOT.parent / "shared"]
-SHARED = next((p for p in _shared_candidates if (p / "partitions.conf").is_file()), _shared_candidates[-1])
-PARTITIONS = SHARED / "partitions.conf"
-SLAVES = SHARED / "slaves.conf"
-MASTER = MASTER_ROOT / "config" / "master.conf"
+CONFIG = MASTER_ROOT / "config"
+PARTITIONS = CONFIG / "partitions.conf"
+SLAVES = CONFIG / "slaves.conf"
+MASTER = CONFIG / "master.conf"
 
 
 def load_partitions():
@@ -91,14 +89,14 @@ def main():
         print(json.dumps({"master": master, "partitions": partitions, "slaves": slaves}, indent=2))
         return
 
-    print("# Slave registry (from shared/slaves.conf + shared/partitions.conf)")
+    print("# Slave registry (from master/config/slaves.conf + partitions.conf)")
     print(f"# Master defaults: gateway={master.get('default_gateway', '?')} partition={master.get('default_partition', '?')}")
     print()
     for row in slaves:
         nodeset = partitions.get(row["partition"], row["nodeset"])
         print(f"gateway={row['gateway']}  partition={row['partition']}  nodeset={nodeset}")
     if not slaves:
-        print("(empty — edit shared/slaves.conf)")
+        print("(empty — edit master/config/slaves.conf)")
 
 
 if __name__ == "__main__":

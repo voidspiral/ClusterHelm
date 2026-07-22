@@ -8,7 +8,7 @@ Master/Slave agents for async partition execution. Supports **OpenCode** runtime
 
 | Layer | Files | Role |
 |-------|-------|------|
-| **Facts** | `shared/partitions.conf`, `shared/slaves.conf`, `master/config/master.conf`, `slave/config/slave.conf` | Partitions, slave registry, timeouts, runtime defaults |
+| **Facts** | `master/config/{partitions,slaves,master}.conf`, `slave/config/slave.conf` | Partitions, slave registry, timeouts, runtime defaults |
 | **Behavior** | `master/.opencode/agents/*.md`, `slave/.opencode/agents/*.md`, skills | How Master/Slave agents submit, poll, preflight, and delegate; points at config |
 
 ```bash
@@ -23,7 +23,10 @@ master/
   .opencode/agents/master-agent.md   # Master agent (OpenCode)
   .opencode/skills/                  # Master skills (e.g. add-tools2)
   opencode.json                      # default_agent=master-agent
-  config/master.conf                 # defaults, poll backoff
+  config/
+    master.conf                      # defaults, poll backoff
+    partitions.conf                  # SoT: test → cn[1-10]
+    slaves.conf                      # SoT: cn1 → test
   scripts/                           # submit.sh, poll.sh, poll-wait.sh, list-slaves.py
 
 slave/
@@ -32,12 +35,8 @@ slave/
   opencode.json                      # default_agent=slave-agent
   config/slave.conf                  # node exclusion + agent_opencode_bin
   scripts/run-slave.sh
+  scripts/resolve-partition.py       # reads config/partitions.conf (deployed from Master)
   scripts/preflight/                 # job_preflight.py, node_exclude.py
-
-shared/
-  partitions.conf                    # test → cn[1-10]
-  slaves.conf                        # cn1 → test
-  resolve-partition.py
 
 scripts/deploy/                      # deploy-master/slave/all, test-agent-chain
 scripts/monitor/                     # memmon + deploy-monitor (optional)

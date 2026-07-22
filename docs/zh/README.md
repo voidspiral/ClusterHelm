@@ -11,7 +11,10 @@ master/
   .opencode/agents/master-agent.md   # Master agent（OpenCode）
   .opencode/skills/                  # Master skills（如 add-tools2）
   opencode.json                      # default_agent=master-agent
-  config/master.conf                 # Master 默认与 SSH 超时
+  config/
+    master.conf                      # Master 默认与 SSH 超时
+    partitions.conf                  # SoT：逻辑分区 → 节点集
+    slaves.conf                      # SoT：Slave 注册表
   scripts/                           # submit / poll / poll-wait / list-slaves
 
 slave/
@@ -20,12 +23,8 @@ slave/
   opencode.json                      # default_agent=slave-agent
   config/slave.conf                  # 节点排除 + agent_opencode_bin
   scripts/run-slave.sh
+  scripts/resolve-partition.py       # 读部署自 Master 的 config/partitions.conf
   scripts/preflight/                 # job_preflight.py, node_exclude.py
-
-shared/
-  partitions.conf                    # 逻辑分区 → 节点集
-  slaves.conf                        # Slave 注册表
-  resolve-partition.py
 
 scripts/deploy/                      # deploy-master / deploy-slave / deploy-all
 scripts/monitor/                     # 内存监控工具（可选）

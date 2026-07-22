@@ -5,7 +5,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MASTER_DIR="$ROOT/master"
-SHARED_DIR="$ROOT/shared"
 TARGET="${1:-local}"
 REMOTE_PROJECT="/home/smt/agents"
 
@@ -38,7 +37,6 @@ deploy_local() {
     "$MASTER_DIR/scripts/poll.sh" \
     "$MASTER_DIR/scripts/poll-wait.sh" \
     "$MASTER_DIR/scripts/list-slaves.py" \
-    "$SHARED_DIR/resolve-partition.py" \
     2>/dev/null || true
 
   if command -v opencode >/dev/null 2>&1; then
@@ -50,8 +48,7 @@ deploy_local() {
 
   echo "== Done =="
   echo "  Job scripts: $MASTER_DIR/scripts/submit.sh, poll.sh, poll-wait.sh"
-  echo "  Config:      $MASTER_DIR/config/master.conf"
-  echo "  Shared:      $SHARED_DIR/"
+  echo "  Config:      $MASTER_DIR/config/{master,partitions,slaves}.conf"
   echo "  Job store:   $ROOT/var/agent-jobs/"
 }
 
@@ -63,7 +60,6 @@ deploy_remote() {
     "mkdir -p '$REMOTE_PROJECT/.opencode/agents' \
       '$REMOTE_PROJECT/scripts' \
       '$REMOTE_PROJECT/config' \
-      '$REMOTE_PROJECT/shared' \
       '$REMOTE_PROJECT/var/agent-jobs'"
 
   scp -o ConnectTimeout=15 -r \
@@ -78,13 +74,9 @@ deploy_remote() {
 
   scp -o ConnectTimeout=15 \
     "$MASTER_DIR/config/master.conf" \
+    "$MASTER_DIR/config/partitions.conf" \
+    "$MASTER_DIR/config/slaves.conf" \
     "$host:$REMOTE_PROJECT/config/"
-
-  scp -o ConnectTimeout=15 \
-    "$SHARED_DIR/partitions.conf" \
-    "$SHARED_DIR/slaves.conf" \
-    "$SHARED_DIR/resolve-partition.py" \
-    "$host:$REMOTE_PROJECT/shared/"
 
   scp -o ConnectTimeout=15 \
     "$MASTER_DIR/scripts/submit.sh" \
@@ -97,13 +89,12 @@ deploy_remote() {
     '$REMOTE_PROJECT/scripts/submit.sh' \
     '$REMOTE_PROJECT/scripts/poll.sh' \
     '$REMOTE_PROJECT/scripts/poll-wait.sh' \
-    '$REMOTE_PROJECT/scripts/list-slaves.py' \
-    '$REMOTE_PROJECT/shared/resolve-partition.py'"
+    '$REMOTE_PROJECT/scripts/list-slaves.py'"
 
   echo "== Done =="
   echo "  OpenCode:    $host:$REMOTE_PROJECT/.opencode/agents/master-agent.md"
   echo "  Job scripts: $host:$REMOTE_PROJECT/scripts/"
-  echo "  Config:      $host:$REMOTE_PROJECT/config/master.conf"
+  echo "  Config:      $host:$REMOTE_PROJECT/config/"
 }
 
 if [[ "$TARGET" == "local" ]]; then

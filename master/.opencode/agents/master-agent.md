@@ -45,8 +45,8 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 
 | File | Purpose |
 |------|---------|
-| `../shared/partitions.conf` | Logical partition → nodeset (`test` → `cn[1-10]`) |
-| `../shared/slaves.conf` | Gateway registry (`cn1` owns `test`) |
+| `config/partitions.conf` | Logical partition → nodeset (`test` → `cn[1-10]`) |
+| `config/slaves.conf` | Gateway registry (`cn1` owns `test`) |
 | `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, timeouts, poll backoff |
 | `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`) |
 | `scripts/poll-wait.sh` | Master → gateway **blocking** poll (single SSH, returns at terminal). Writes `var/agent-jobs/<id>.last.json`. |
@@ -216,4 +216,4 @@ python3 -c "import json; d=json.load(open('../var/agent-jobs/<id>.last.json')); 
 
 ## Configuration
 
-See `../shared/partitions.conf` (logical names), `../shared/slaves.conf` (gateway registry), `config/master.conf` (defaults).
+See `config/partitions.conf` (logical names), `config/slaves.conf` (gateway registry), `config/master.conf` (defaults).

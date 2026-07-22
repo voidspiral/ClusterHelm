@@ -1,18 +1,37 @@
 #!/usr/bin/env python3
-"""Resolve logical partition names (e.g. test) to nodeset expressions."""
+"""Resolve logical partition names (e.g. test) to nodeset expressions.
+
+Looks for partitions.conf under:
+  - ../config/partitions.conf  (deployed flat or slave/config copy)
+  - ../../master/config/partitions.conf  (monorepo SoT on Master)
+"""
 import re
 import sys
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
-CONF = DIR / "partitions.conf"
+_CANDIDATES = [
+    DIR.parent / "config" / "partitions.conf",  # slave/config or /home/smt/agents/config
+    DIR.parents[1] / "master" / "config" / "partitions.conf",  # monorepo
+]
+
+
+def _conf_path() -> Path:
+    for p in _CANDIDATES:
+        if p.is_file():
+            return p
+    return _CANDIDATES[0]
+
+
+CONF = _conf_path()
 
 
 def load_partitions():
     aliases = {}
-    if not CONF.is_file():
+    conf = _conf_path()
+    if not conf.is_file():
         return aliases
-    for line in CONF.read_text().splitlines():
+    for line in conf.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue

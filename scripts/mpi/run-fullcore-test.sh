@@ -8,14 +8,14 @@ DURATION="${2:-0}"
 CPU_INTERVAL="${3:-2}"
 SRC="$ROOT/tests/mpi/fullcore_test.c"
 BIN="$ROOT/tests/mpi/fullcore_test"
-SHARED_DIR="$ROOT/shared"
 SLAVE_CONF="$ROOT/slave/config/slave.conf"
+RESOLVE="$ROOT/slave/scripts/resolve-partition.py"
 # Gateway flat deploy fallback
 if [[ ! -f "$SLAVE_CONF" ]]; then
   SLAVE_CONF="${AGENT_HOME:-/home/smt/agents}/config/slave.conf"
 fi
-if [[ ! -d "$SHARED_DIR" ]]; then
-  SHARED_DIR="${AGENT_HOME:-/home/smt/agents}/shared"
+if [[ ! -x "$RESOLVE" && ! -f "$RESOLVE" ]]; then
+  RESOLVE="${AGENT_HOME:-/home/smt/agents}/scripts/resolve-partition.py"
 fi
 
 if [[ "$(hostname -s)" != cn1 ]]; then
@@ -31,7 +31,7 @@ command -v "$MPICC" >/dev/null || { echo "FAIL: mpicc ($MPICC) not found"; exit 
 command -v "$MPIRUN" >/dev/null || { echo "FAIL: mpirun ($MPIRUN) not found"; exit 1; }
 [[ -f "$SRC" ]] || { echo "FAIL: missing $SRC"; exit 1; }
 
-NODESET="$("$SHARED_DIR/resolve-partition.py" "$PARTITION")"
+NODESET="$("$RESOLVE" "$PARTITION")"
 mapfile -t HOSTS < <(python3 - "$NODESET" <<'PY'
 import re, sys
 expr = sys.argv[1]

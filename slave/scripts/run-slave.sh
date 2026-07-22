@@ -57,16 +57,10 @@ cmd_submit() {
   local script_dir mode="script"
   [[ -n "$prompt" ]] && mode="agent"
   script_dir="$(cd "$(dirname "$0")" && pwd)"
-  local project_root shared_dir
+  local project_root
   project_root="$(cd "$script_dir/.." && pwd)"
-  # Flat deploy: <root>/shared; monorepo: <repo>/shared (sibling of slave/)
-  if [[ -f "$project_root/shared/partitions.conf" ]]; then
-    shared_dir="$project_root/shared"
-  else
-    shared_dir="$(cd "$project_root/../shared" && pwd)"
-  fi
   local partition_input="$partition"
-  partition=$(python3 "$shared_dir/resolve-partition.py" "$partition" --validate)
+  partition=$(python3 "$script_dir/resolve-partition.py" "$partition" --validate)
   local mpi_mpicc mpi_mpirun
   mpi_mpicc="$(slave_conf_get mpi_mpicc '')"
   mpi_mpirun="$(slave_conf_get mpi_mpirun '')"

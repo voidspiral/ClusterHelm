@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MASTER_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Monorepo: var/ at repo root; deployed flat: var/ next to scripts/
-if [[ -d "$MASTER_ROOT/../shared" && -d "$MASTER_ROOT/../slave" ]]; then
+if [[ -d "$MASTER_ROOT/../slave" ]]; then
   ROOT="$(cd "$MASTER_ROOT/.." && pwd)"
 else
   ROOT="$MASTER_ROOT"

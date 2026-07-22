@@ -38,11 +38,11 @@ Implications:
 
 | File | Purpose |
 |------|---------|
-| `shared/partitions.conf` | Logical partition → nodeset |
-| `shared/slaves.conf` | This gateway's partition |
+| `config/partitions.conf` | Logical partition → nodeset (deployed from Master SoT) |
+| `config/slave.conf` | Exclusion policy, agent CLI, MPI paths |
 
 ```bash
-grep ^$(hostname -s) /home/smt/agents/shared/slaves.conf
+cat /home/smt/agents/config/partitions.conf
 ```
 
 ## Your responsibilities (Master does NOT do these)
