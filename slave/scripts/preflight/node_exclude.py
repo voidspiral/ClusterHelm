@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,37 @@ class NodeExclusionStore:
         name = self.conf.get("exclude_store", DEFAULT_STORE)
         self.path = self.job_dir / name
         self._data: dict[str, dict[str, dict[str, Any]]] | None = None
+        self._daemon_cache: dict[str, dict[str, dict[str, Any]] | None] = {}
+
+    def _daemon_exclusions(
+        self, partition: str
+    ) -> dict[str, dict[str, Any]] | None:
+        if partition in self._daemon_cache:
+            return self._daemon_cache[partition]
+        try:
+            from nodestatus_client import query_partition
+
+            nodes, _ = query_partition(partition, self.conf)
+        except (ImportError, OSError, ValueError):
+            nodes = None
+        if nodes is None:
+            self._daemon_cache[partition] = None
+            return None
+        excluded: dict[str, dict[str, Any]] = {}
+        for host, node in nodes.items():
+            policy = node.get("exclusion")
+            active = node.get("state") == "excluded" or node.get("excluded") is True
+            if isinstance(policy, dict):
+                active = active or policy.get("excluded") is True
+                entry = {**policy}
+            else:
+                entry = {}
+            if active:
+                entry.setdefault("excluded", True)
+                entry.setdefault("reason", node.get("exclude_reason"))
+                excluded[host] = entry
+        self._daemon_cache[partition] = excluded
+        return excluded
 
     def _load(self) -> dict[str, dict[str, dict[str, Any]]]:
         if self._data is not None:
@@ -119,6 +151,9 @@ class NodeExclusionStore:
             self._save()
 
     def get_entry(self, partition: str, host: str) -> dict[str, Any] | None:
+        daemon = self._daemon_exclusions(partition)
+        if daemon is not None:
+            return daemon.get(host)
         entry = self._partition(partition).get(host)
         if not entry or not self._is_entry_active(entry):
             return None
@@ -129,6 +164,9 @@ class NodeExclusionStore:
         return (entry is not None, entry)
 
     def list_excluded(self, partition: str) -> list[tuple[str, dict[str, Any]]]:
+        daemon = self._daemon_exclusions(partition)
+        if daemon is not None:
+            return sorted(daemon.items(), key=lambda x: x[0])
         part = self._partition(partition)
         out = []
         for host, entry in part.items():
@@ -145,6 +183,44 @@ class NodeExclusionStore:
         phase: str,
         fail_count: int | None = None,
     ) -> dict[str, Any]:
+        daemon = self._daemon_exclusions(partition)
+        if daemon is not None:
+            binary = str(
+                self.conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"
+            )
+            socket_path = str(
+                self.conf.get("nodestatus_unix_socket")
+                or "/run/nodestatus/nodestatus.sock"
+            )
+            try:
+                result = subprocess.run(
+                    [
+                        binary, "exclude", "--partition", partition,
+                        "--host", host, "--reason", reason,
+                        "--socket", socket_path, "-o", "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=max(
+                        1, int(self.conf.get("nodestatus_query_timeout", 5))
+                    ),
+                )
+                if result.returncode == 0:
+                    self._daemon_cache.pop(partition, None)
+                    entry = {
+                        "excluded": True,
+                        "reason": reason,
+                        "phase": phase,
+                        "fail_count": fail_count or 1,
+                        "excluded_since": _utc_now(),
+                    }
+                    # Keep the legacy file as a rollback projection. The daemon
+                    # writes its distinct node-status-exclusions.json store.
+                    self._partition(partition)[host] = entry
+                    self._save()
+                    return entry
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         part = self._partition(partition)
         now = _utc_now()
         prev = part.get(host, {})
@@ -214,6 +290,39 @@ class NodeExclusionStore:
         self._save()
 
     def clear(self, partition: str, host: str) -> None:
+        daemon = self._daemon_exclusions(partition)
+        if daemon is not None:
+            binary = str(
+                self.conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"
+            )
+            socket_path = str(
+                self.conf.get("nodestatus_unix_socket")
+                or "/run/nodestatus/nodestatus.sock"
+            )
+            try:
+                result = subprocess.run(
+                    [
+                        binary, "clear", "--partition", partition,
+                        "--host", host, "--socket", socket_path, "-o", "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=max(
+                        1, int(self.conf.get("nodestatus_query_timeout", 5))
+                    ),
+                )
+                if result.returncode == 0:
+                    self._daemon_cache.pop(partition, None)
+                    legacy = self._partition(partition)
+                    if host in legacy:
+                        legacy[host]["excluded"] = False
+                        legacy[host]["cleared_at"] = _utc_now()
+                        legacy[host]["clear_reason"] = "manual"
+                        legacy[host]["exec_fail_streak"] = 0
+                        self._save()
+                    return
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         part = self._partition(partition)
         if host not in part:
             return

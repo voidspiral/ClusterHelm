@@ -39,6 +39,12 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     preflight_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(preflight_dir))
     from node_exclude import NodeExclusionStore
+    from nodestatus_client import (
+        is_excluded as status_is_excluded,
+        is_fresh_online,
+        probe_partition,
+        query_partition,
+    )
 
     job_dir = Path(job_dir)
     path = job_dir / f"{job_id}.json"
@@ -49,6 +55,20 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     partition_name = data.get("partition") or data.get("partition_nodeset", "")
     store = NodeExclusionStore(job_dir)
     hosts = expand(data["partition_nodeset"])
+    status_nodes, status_metadata = query_partition(partition_name)
+    if status_nodes is not None:
+        refresh_hosts = [
+            host for host in hosts
+            if not is_fresh_online(status_nodes.get(host))
+            and not status_is_excluded(status_nodes.get(host))
+            and not store.is_excluded(partition_name, host)[0]
+        ]
+        refreshed, refresh_metadata = probe_partition(partition_name, refresh_hosts)
+        if refreshed is not None:
+            status_nodes.update(refreshed)
+            status_metadata = refresh_metadata or status_metadata
+    if status_metadata:
+        data["nodestatus_snapshot"] = status_metadata
 
     def save() -> None:
         data["updated_at"] = _utc_now()
@@ -112,18 +132,28 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
 
     excluded_skip = 0
     for host in hosts:
+        status_node = status_nodes.get(host) if status_nodes is not None else None
         excluded, entry = store.is_excluded(partition_name, host)
-        if not excluded:
+        if not excluded and not status_is_excluded(status_node):
             continue
         excluded_skip += 1
         data["excluded_hosts"].append(host)
+        status_exclusion = (
+            status_node.get("exclusion", {}) if isinstance(status_node, dict) else {}
+        )
         data["nodes"][host] = {
             "state": "excluded",
             "phase": "skipped",
             "excluded": True,
-            "exclude_reason": entry.get("reason") if entry else None,
-            "excluded_since": entry.get("excluded_since") if entry else None,
+            "exclude_reason": (
+                entry.get("reason") if entry else status_exclusion.get("reason")
+            ),
+            "excluded_since": (
+                entry.get("excluded_since")
+                if entry else status_exclusion.get("excluded_since")
+            ),
             "last_fail_at": entry.get("last_fail_at") if entry else None,
+            "status_source": "nodestatus" if status_is_excluded(status_node) else "legacy",
         }
         data["progress"]["excluded"] = excluded_skip
         save()
@@ -133,11 +163,24 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     for host in hosts:
         if data["nodes"].get(host, {}).get("state") == "excluded":
             continue
-        reachable_ok, ping_ok, ssh_ok, err = preflight_host(host)
-        node = {
-            "ping": "ok" if ping_ok else "fail",
-            "ssh": "ok" if (ssh_ok or is_local(host)) else "fail",
-        }
+        status_node = status_nodes.get(host) if status_nodes is not None else None
+        if is_fresh_online(status_node):
+            reachable_ok, ping_ok, ssh_ok, err = True, True, True, ""
+            node = {
+                "ping": "cached",
+                "ssh": "cached",
+                "status_source": "nodestatus",
+                "health_state": status_node.get("health_state", "online"),
+                "fresh": True,
+                "last_seen": status_node.get("last_seen"),
+            }
+        else:
+            reachable_ok, ping_ok, ssh_ok, err = preflight_host(host)
+            node = {
+                "ping": "ok" if ping_ok else "fail",
+                "ssh": "ok" if (ssh_ok or is_local(host)) else "fail",
+                "status_source": "legacy",
+            }
         if reachable_ok:
             node["state"] = "ok"
             node["phase"] = "preflight"
