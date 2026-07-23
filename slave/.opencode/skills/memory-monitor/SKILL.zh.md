@@ -9,10 +9,17 @@ description: >-
 # 内存监控（Slave 网关）
 
 本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/smt/agents/.opencode/skills/memory-monitor/`。  
-监控 CLI（`memmon.py`、`mem-api.sh`）由 **`deploy-monitor.sh`** 单独部署（可选）。  
+确定性监控实现（`memmon.py`、`mem-api.sh`）随 workflow runner 一起部署。
 **Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll-wait.sh` 委托 Slave 执行。
 
-在**网关上**使用 `mem-api.sh`；复用 `run-slave.sh` 的预检、节点排除与作业 JSON。禁止手工 SSH 各节点跑 `free` / `meminfo`。
+Agent 模式必须使用一次固定调用：
+
+```bash
+python3 /home/smt/agents/scripts/workflows/workflow_runner.py run memory-monitor \
+  --partition test --timeout <剩余秒数>
+```
+
+runner 复用 `run-slave.sh` 的预检、节点排除、阻塞等待与作业 JSON。成功后禁止直接调用 `mem-api.sh`、自行 poll 或手工 SSH 各节点跑 `free` / `meminfo`。下文底层命令仅供操作员或异常诊断使用。
 
 英文版：[SKILL.md](SKILL.md)
 
@@ -204,7 +211,7 @@ Master 通过 **agent-to-agent** 委托，不下发 `mem-api.sh` 或 `memmon.py`
 ./master/scripts/poll-wait.sh --job-id <job_id>
 ```
 
-Slave agent 在网关侧加载本 Skill 并执行 `mem-api.sh partition`（或嵌套 script 作业）。Master 从 `partition_report.markdown` 向用户汇报。
+Slave agent 在网关侧加载本 Skill，并单次执行 `memory-monitor` workflow。直接运行 `mem-api.sh` 或嵌套 script 作业仅用于 runner 返回异常后的定向诊断。Master 从 `partition_report.markdown` 向用户汇报。
 
 Script 模式回退（仅当用户明确要求 `--command`）：
 

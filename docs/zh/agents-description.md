@@ -45,11 +45,14 @@
 3. 仅对预检通过的节点执行 command
 4. 后台 worker 结束时写入 **`partition_report`**（分区集中汇报）
 5. Master 只转发 `partition_report`，不自行汇总节点
+6. Agent 模式的已知任务先归一化为 workflow，只调用一次聚合 runner；成功即停止
+7. 仅在 workflow 缺失或 runner 返回异常时自由诊断，最多一次定向重试
 
 **不应做的事：**
 - 在单次调用里同步跑完 100 节点
 - 只在任务结束时才写一次 JSON（必须增量更新）
 - 对失败节点无限重试
+- 已知任务由 LLM 逐节点执行、反复 poll 或成功后继续探索
 
 **英文 description（规则内）：**
 > Slave agent — partition execution on gateway (cn1), preflight nodes, background jobs, incremental JSON results

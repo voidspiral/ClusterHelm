@@ -1,0 +1,14 @@
+{
+  "id": "node-command",
+  "title": "Run a provided command on reachable partition nodes",
+  "match_hints": ["per-node command", "batch shell", "run command on nodes"],
+  "arguments": {
+    "command": {"type": "string", "required": true, "min_length": 1}
+  },
+  "implementation": {
+    "type": "per-node-command",
+    "command_argument": "command"
+  },
+  "success_policy": {"allow_exclusion_only_partial": true},
+  "max_attempts": 2
+}

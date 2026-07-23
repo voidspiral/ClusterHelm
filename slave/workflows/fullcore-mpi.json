@@ -1,0 +1,20 @@
+{
+  "id": "fullcore-mpi",
+  "title": "Run the full-core MPI test from the Slave gateway",
+  "match_hints": ["fullcore", "full-core MPI", "MPI 满核", "满核测试"],
+  "arguments": {
+    "duration": {"type": "integer", "default": 60, "minimum": 1, "maximum": 3600},
+    "interval": {"type": "integer", "default": 2, "minimum": 1, "maximum": 60}
+  },
+  "implementation": {
+    "type": "gateway-script",
+    "argv": [
+      "{mpi_dir}/run-fullcore-test.sh",
+      "{partition}",
+      "{duration}",
+      "{interval}"
+    ]
+  },
+  "success_policy": {"allow_exclusion_only_partial": true},
+  "max_attempts": 2
+}

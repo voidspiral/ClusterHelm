@@ -42,6 +42,7 @@ flowchart TB
     SC[slave.conf<br/>agent_opencode_bin]
     SJ[/home/smt/agents/var/agent-jobs/job-*.json/]
     SA["Slave Agent LLM<br/>OpenCode: slave-agent"]
+    WR["workflow_runner.py<br/>single aggregated call"]
     WK["_worker<br/>deterministic script worker"]
     AW["_agent_worker<br/>launches Slave agent CLI"]
     RS --> SJ
@@ -49,7 +50,8 @@ flowchart TB
     RS -->|agent mode --prompt| AW
     AW --> SA
     SC --> AW
-    SA --> RS
+    SA -->|known task| WR
+    WR --> RS
   end
 
   subgraph Nodes["Compute nodes (test partition)"]
@@ -66,7 +68,7 @@ flowchart TB
   WK --> N2
   WK --> N3
   WK --> N10
-  SA -->|may nest script-mode jobs| RS
+  SA -->|exception-only direct diagnosis| RS
   RS -->|partition_report.markdown| MP
   MP --> MA
 ```
@@ -167,8 +169,8 @@ sequenceDiagram
     SS->>RS: SSH submit
     RS->>Exec: _agent_worker
     Exec->>Exec: opencode run --agent slave-agent
-    Exec->>RS: may nest run-slave.sh --command
-    RS->>Node: preflight + exec
+    Exec->>RS: workflow_runner.py run (one call)
+    RS->>Node: deterministic preflight + exec
     Exec->>RS: AGENT_STATUS + PARTITION_REPORT contract
     RS->>RS: parse into partition_report
   end
@@ -186,6 +188,20 @@ sequenceDiagram
 | **Agent** | `--prompt '<task>'` | Slave agent LLM via OpenCode CLI | Judgment, diagnosis, multi-step |
 
 Both modes produce the same `partition_report` in job JSON; Master reporting flow is identical.
+
+### Slave agent internal workflow (agent mode)
+
+Agent mode still launches the Slave LLM once to understand the task. For known operations, the LLM must not freely orchestrate node calls. It maps the request to one Slave-local workflow and makes one aggregated runner call:
+
+```text
+normalize task → select workflow → workflow_runner.py run
+                                      ├─ success: return partition_report
+                                      └─ exception: diagnose once, retry once at most
+```
+
+The runner owns deterministic submit, blocking wait, validation, classification, and report aggregation. Built-ins are `node-command`, `hostname-check`, `memory-monitor`, and `fullcore-mpi`. Stable exception codes are `workflow_missing`, `invalid_arguments`, `implementation_missing`, `execution_error`, `timeout`, and `contract_error`.
+
+On success the Slave agent must stop; per-node SSH, LLM-managed polling, extra checks, and report reconstruction are forbidden. Free-form tool use is reserved for a missing implementation or a returned exception, with one diagnosis and at most one targeted retry.
 
 ---
 
@@ -209,7 +225,7 @@ agent_opencode_agent slave-agent
 | **Master Agent** | Submit to gateway, poll job, present `partition_report.markdown` | SSH/exec on cn2–cn10; assemble node status from raw `nodes.*` |
 | **Slave gateway** | Preflight, node exclusion, exec, centralized report | Operate outside owned partition |
 | **Script mode** | Deterministic per-node run | LLM reasoning |
-| **Agent mode** | Slave LLM plans and reports | As fast as script mode |
+| **Agent mode** | Slave LLM normalizes; workflow runner executes; bounded diagnosis on exceptions | As fast as script mode |
 
 ---
 

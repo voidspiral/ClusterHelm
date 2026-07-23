@@ -113,13 +113,15 @@ if mode == "agent":
 ## Execution rules
 1. **FIRST — partition availability:** every node in the nodeset must be checked (ping → SSH) and persisted exclusions loaded before any user task. Record reachable / excluded / unreachable in the report. Never exec on unverified or excluded nodes. (Agent jobs: preflight runs automatically into job JSON before you start — read `reachable_hosts` and `nodes` first.)
 2. Operate only on nodes inside the nodeset above.
-3. For deterministic partition-wide commands, prefer the built-in worker:
-   {project_root}/scripts/run-slave.sh submit --partition {partition_name} --command '<cmd>'
-   then poll it with: {project_root}/scripts/run-slave.sh poll --job-id <nested_job_id>
-   (nested jobs are allowed; incorporate their results into your report).
-4. Respect persisted exclusions: {project_root}/scripts/preflight/node_exclude.py list --partition {partition_name}
-5. MPI environment (from config/slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
-6. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
+3. **MANDATORY fixed workflow path:** normalize the task to one built-in workflow and invoke the runner exactly once:
+   python3 {project_root}/scripts/workflows/workflow_runner.py run <workflow-id> --partition {partition_name} [--arg key=value] --timeout <remaining>
+   Built-ins: `node-command`, `hostname-check`, `memory-monitor`, `fullcore-mpi`.
+4. If the runner returns `outcome=success`, immediately use its `partition_report.markdown` and stop. Do not inspect files, SSH nodes, poll, run preflight, or perform extra checks.
+5. Free-form diagnosis is allowed only when the runner returns `outcome=exception`. Diagnose once from its structured job/report context. If `retry_allowed=true`, make at most one targeted retry of the same workflow with `--attempt 2`; then report and stop.
+6. Direct `run-slave.sh` jobs and minimum implementation work are exception-only, for `workflow_missing` / `implementation_missing` or targeted diagnosis. Never silently clear exclusions or loop.
+7. Respect persisted exclusions: {project_root}/scripts/preflight/node_exclude.py list --partition {partition_name}
+8. MPI environment (from config/slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
+9. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
 AGENT_STATUS: <done|partial|failed>

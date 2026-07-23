@@ -34,6 +34,38 @@
 
 Script 模式：`_worker` 自动先预检再执行。Agent 模式：`_agent_worker` 在启动 Slave LLM **之前**自动运行 `job_preflight.py` 写入 job JSON；Slave agent 须先读 `reachable_hosts` / `nodes` 再执行业务任务。
 
+## Agent 模式固定工作流
+
+Slave 仍然是 LLM，负责把具体需求归一化为一个 workflow 和参数；但已知任务的执行过程不再由模型自由编排。
+
+固定状态机：
+
+```text
+理解需求一次 → 匹配 workflow → 单次调用 runner → 代码校验结果
+                                      ├─ success：直接报告并停止
+                                      └─ exception：一次诊断，最多一次定向重试
+```
+
+内置 workflow：
+
+| Workflow | 用途 | 参数 |
+|----------|------|------|
+| `node-command` | 各可达节点执行同一命令 | `command` |
+| `hostname-check` | 检查各节点主机名 | 无 |
+| `memory-monitor` | 内存、Swap、OOM 风险采集 | 无 |
+| `fullcore-mpi` | MPI 满核测试 | `duration`、`interval` |
+
+标准调用：
+
+```bash
+python3 /home/smt/agents/scripts/workflows/workflow_runner.py run hostname-check \
+  --partition test --timeout 600
+```
+
+runner 在一次工具调用内完成 submit、阻塞 wait、结果校验、异常分类与 `partition_report` 聚合。`outcome=success` 后禁止继续检查文件、逐节点 SSH、自行 poll 或附加“顺便检查”。
+
+只有 `workflow_missing`、`implementation_missing`、`invalid_arguments`、`execution_error`、`timeout`、`contract_error` 可进入自由处理。异常处理必须复用 runner 返回的 job/report 上下文，只诊断一次；仅在 `retry_allowed=true` 时以 `--attempt 2` 对同一 workflow 做一次定向重试，之后必须报告并停止。
+
 ## 节点排除
 
 | 触发 | 行为 |
@@ -79,6 +111,9 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 
 ## 禁止
 
+- 已知任务跳过 workflow runner，自行探索或拼装命令
+- workflow 成功后继续检查、逐节点 SSH 或自行轮询
+- 异常时重复全量采集，或超过一次诊断、一次定向重试
 - 在确认分区节点可用性之前执行用户任务
 - 只留原始 `nodes` 数据、让 Master 自己汇总
 - 跳过预检直接执行

@@ -45,6 +45,44 @@ Implications:
 cat /home/smt/agents/config/partitions.conf
 ```
 
+## Mandatory workflow state machine
+
+For every agent-mode task, follow this sequence **before any exploratory bash**:
+
+1. **Normalize once** — map the request to exactly one workflow id and typed arguments.
+2. **Run once** — invoke `workflow_runner.py run` exactly once.
+3. **Validate by result** — use its `outcome` / `reason_code`; do not reconstruct node state.
+4. **Stop on success** — output its `partition_report.markdown` immediately.
+5. **Adapt only on exception** — diagnose once and, only when `retry_allowed=true`, make at most one targeted retry using `--attempt 2`.
+
+Built-in mapping:
+
+| Intent | Workflow | Arguments |
+|--------|----------|-----------|
+| Run an arbitrary command on each node | `node-command` | `--arg command='<exact command>'` |
+| Check hostnames | `hostname-check` | none |
+| RAM / memory / swap / OOM health | `memory-monitor` | none |
+| Full-core MPI test | `fullcore-mpi` | `--arg duration=<1..3600> --arg interval=<1..60>` |
+
+One-call happy-path command:
+
+```bash
+python3 /home/smt/agents/scripts/workflows/workflow_runner.py run <workflow-id> \
+  --partition <partition> [--arg key=value] --timeout <remaining-seconds>
+```
+
+The runner performs deterministic submit, blocking wait, validation, exception classification, and report aggregation. It never calls an LLM.
+
+**Successful result (`outcome: success`) is terminal for your reasoning.** Do not inspect files, SSH nodes, call `run-slave.sh` directly, poll, rerun preflight, or perform extra checks after success.
+
+### Exception-only adaptive mode
+
+Free-form tool use is allowed only for `workflow_missing`, `implementation_missing`, `invalid_arguments` that cannot be corrected from the task, `execution_error`, `timeout`, or `contract_error`.
+
+Use the returned `job`, failed hosts, report text, and `reason_code`; do not repeat broad collection already performed by the runner. Diagnose once. If a safe targeted retry is justified and `retry_allowed` is true, run the **same workflow** once with `--attempt 2`. After attempt 2, report the remaining error and stop.
+
+For missing workflows/implementations, create only the minimum deterministic implementation needed for the request, execute it once, and recommend promoting it into `slave/workflows/`. Never silently clear exclusions or perform unbounded repair loops.
+
 ## Your responsibilities (Master does NOT do these)
 
 **First — partition node availability (before any user task):** confirm every node in the owned nodeset is ping/SSH reachable; load persisted exclusions; record `reachable_hosts`, `excluded_hosts`, and unreachable nodes in job JSON and `partition_report`. **Do not execute** on nodes that failed preflight or are excluded.
@@ -110,7 +148,7 @@ Your obligations for these jobs:
 
 1. **First** — treat partition availability as step zero: read preflight results in job JSON (`reachable_hosts`, `excluded_hosts`, `nodes.*.ping/ssh`); if missing, run preflight (nested `run-slave.sh submit` jobs include it automatically) before any user task work.
 2. Stay inside the given nodeset; never exec on nodes that failed preflight or are excluded.
-3. For deterministic partition-wide commands, prefer a **nested script-mode job**: `run-slave.sh submit --partition <p> --command '<cmd>'`, then `run-slave.sh poll` it to terminal and fold results into your report.
+3. For known tasks, use the mandatory workflow runner. Direct nested script jobs are permitted only in exception-only adaptive mode when a workflow implementation is missing.
 4. **End your reply with the report contract, exactly:**
 
 ```
@@ -129,6 +167,7 @@ The wrapper parses these markers into `partition_report` in the job JSON — Mas
 /home/smt/agents/scripts/run-slave.sh submit --partition test --command '<cmd>'    # script mode
 /home/smt/agents/scripts/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
 /home/smt/agents/scripts/run-slave.sh poll --job-id <job_id>
+python3 /home/smt/agents/scripts/workflows/workflow_runner.py list
 ```
 
 ## Skills
@@ -143,6 +182,9 @@ After `mem-api.sh partition`, synthesize a memory table report in `partition_rep
 
 ## Forbidden
 
+- Skipping the workflow match/run sequence for a known task
+- Exploratory bash, per-node SSH, direct polling, or extra checks after workflow success
+- More than one diagnosis or more than one targeted retry
 - Executing user tasks before partition node availability is confirmed
 - Leaving Master to assemble partition status from scattered `nodes.*`
 - Executing without preflight
