@@ -12,9 +12,16 @@ metadata:
 
 # Memory Monitor (Slave gateway)
 
-This skill is **deployed to the Slave gateway** (e.g. cn1) via **`deploy-slave.sh`** (skills under `slave/.opencode/skills/`). Monitor CLI binaries are deployed separately via **`scripts/monitor/deploy-monitor.sh`**. It does **not** apply on the Master workspace.
+This skill is **deployed to the Slave gateway** (e.g. cn1) via **`deploy-slave.sh`** (skills under `slave/.opencode/skills/`). The deterministic monitor implementation is deployed with the workflow runner. It does **not** apply on the Master workspace.
 
-Run on the **gateway** using `mem-api.sh`; it reuses `run-slave.sh` preflight, exclusion, and job JSON — do not SSH nodes manually for `free`/`meminfo`.
+For an agent-mode partition task, use exactly one fixed workflow call:
+
+```bash
+python3 /home/smt/agents/scripts/workflows/workflow_runner.py run memory-monitor \
+  --partition test --timeout <remaining-seconds>
+```
+
+The runner builds the remote command from `memmon.py` and reuses `run-slave.sh` preflight, exclusion, blocking wait, and job JSON. Do not call `mem-api.sh`, poll, or SSH nodes manually on the successful agent path. The lower-level commands below are operator/debug references for exception-only use.
 
 ## Deployment (simulation phase)
 
@@ -146,4 +153,4 @@ Master does **not** load this skill. Delegate via agent-to-agent:
   --task memory-monitor
 ```
 
-Slave agent runs `mem-api.sh partition` (or nested script job) on the gateway. Script-mode `--command` is fallback only when the user explicitly requests it.
+Slave agent runs the `memory-monitor` workflow once. Direct `mem-api.sh` or nested script jobs are exception-only diagnostics.

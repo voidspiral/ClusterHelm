@@ -1,0 +1,13 @@
+{
+  "id": "memory-monitor",
+  "title": "Collect memory and swap metrics from partition nodes",
+  "match_hints": ["memory", "RAM", "swap", "OOM", "内存"],
+  "arguments": {},
+  "implementation": {
+    "type": "per-node-command",
+    "command_factory": ["python3", "{monitor_dir}/memmon.py", "--remote-cmd"],
+    "report_formatter": "memory"
+  },
+  "success_policy": {"allow_exclusion_only_partial": true},
+  "max_attempts": 2
+}

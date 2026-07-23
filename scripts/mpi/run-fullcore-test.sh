@@ -32,7 +32,10 @@ command -v "$MPIRUN" >/dev/null || { echo "FAIL: mpirun ($MPIRUN) not found"; ex
 [[ -f "$SRC" ]] || { echo "FAIL: missing $SRC"; exit 1; }
 
 NODESET="$("$RESOLVE" "$PARTITION")"
-mapfile -t HOSTS < <(python3 - "$NODESET" <<'PY'
+if [[ -n "${CLUSTERHELM_REACHABLE_HOSTS:-}" ]]; then
+    read -r -a HOSTS <<< "$CLUSTERHELM_REACHABLE_HOSTS"
+else
+    mapfile -t HOSTS < <(python3 - "$NODESET" <<'PY'
 import re, sys
 expr = sys.argv[1]
 m = re.match(r"^([a-zA-Z]+)\[(.+)\]$", expr)
@@ -49,7 +52,8 @@ for part in inner.split(","):
     else:
         print(f"{prefix}{part}")
 PY
-)
+    )
+fi
 
 tmpdir="$(mktemp -d)"
 

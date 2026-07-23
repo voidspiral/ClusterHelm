@@ -42,6 +42,7 @@ flowchart TB
     SC[slave.conf<br/>agent_opencode_bin]
     SJ[/home/smt/agents/var/agent-jobs/job-*.json/]
     SA["Slave Agent LLM<br/>OpenCode: slave-agent"]
+    WR["workflow_runner.py<br/>单次聚合调用"]
     WK["_worker<br/>确定性脚本 worker"]
     AW["_agent_worker<br/>启动 Slave agent CLI"]
     RS --> SJ
@@ -49,7 +50,8 @@ flowchart TB
     RS -->|agent 模式 --prompt| AW
     AW --> SA
     SC --> AW
-    SA --> RS
+    SA -->|已知任务| WR
+    WR --> RS
   end
 
   subgraph Nodes["计算节点（test 分区）"]
@@ -66,7 +68,7 @@ flowchart TB
   WK --> N2
   WK --> N3
   WK --> N10
-  SA -->|可嵌套 script 模式任务| RS
+  SA -->|仅异常直接诊断| RS
   RS -->|partition_report.markdown| MP
   MP --> MA
 ```
@@ -169,8 +171,8 @@ sequenceDiagram
     SS->>RS: SSH submit
     RS->>Exec: _agent_worker
     Exec->>Exec: opencode run --agent slave-agent
-    Exec->>RS: 可嵌套 run-slave.sh --command
-    RS->>Node: preflight + exec
+    Exec->>RS: workflow_runner.py run（单次调用）
+    RS->>Node: 确定性 preflight + exec
     Exec->>RS: AGENT_STATUS + PARTITION_REPORT 契约
     RS->>RS: 解析为 partition_report
   end
@@ -186,6 +188,20 @@ sequenceDiagram
 | **Agent** | `--prompt '<task>'` | Slave agent LLM | 需判断、诊断、多步骤 |
 
 两种模式产出相同的 `partition_report`；Master 汇报流程一致。
+
+### Slave Agent 内部固定工作流（Agent 模式）
+
+Agent 模式仍启动一次 Slave LLM 来理解任务，但已知操作不再允许模型自由编排节点调用。模型把需求映射为一个 Slave 本地 workflow，然后只调用一次聚合 runner：
+
+```text
+归一化需求 → 选择 workflow → workflow_runner.py run
+                                  ├─ success：返回 partition_report
+                                  └─ exception：诊断一次，最多定向重试一次
+```
+
+runner 负责确定性的 submit、阻塞 wait、结果校验、异常分类和报告聚合。内置 `node-command`、`hostname-check`、`memory-monitor`、`fullcore-mpi`。稳定异常码包括 `workflow_missing`、`invalid_arguments`、`implementation_missing`、`execution_error`、`timeout`、`contract_error`。
+
+成功后 Slave agent 必须停止，禁止逐节点 SSH、由 LLM 自行 poll、额外检查或重建报告。只有缺少实现或 runner 返回异常时才能自由使用工具，且仅允许一次诊断和最多一次定向重试。
 
 ---
 
@@ -209,7 +225,7 @@ agent_opencode_agent slave-agent
 | **Master Agent** | 提交到网关、轮询、呈现 `partition_report.markdown` | SSH/执行 cn2–cn10；从 `nodes.*` 自行拼报告 |
 | **Slave 网关** | preflight、节点排除、执行、集中报告 | 越权操作其他分区 |
 | **Script 模式** | 确定性 per-node 执行 | LLM 推理 |
-| **Agent 模式** | Slave LLM 规划与汇报 | 与 script 同速 |
+| **Agent 模式** | Slave LLM 归一化任务；workflow runner 执行；异常时受限诊断 | 与 script 同速 |
 
 ---
 

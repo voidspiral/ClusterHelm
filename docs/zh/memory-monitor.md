@@ -3,7 +3,7 @@
 > **完整 Skill 中文版：** [`slave/.opencode/skills/memory-monitor/SKILL.zh.md`](../../slave/.opencode/skills/memory-monitor/SKILL.zh.md)  
 > 英文 Skill（部署到 Slave）：[`SKILL.md`](../../slave/.opencode/skills/memory-monitor/SKILL.md)
 
-**Skill** 经 `deploy-slave.sh` 部署；**mem-api / memmon** 经 `deploy-monitor.sh` 单独部署（可选）。  
+**Skill、workflow runner、mem-api / memmon** 均经 `deploy-slave.sh` 部署。
 **Master 工作区不加载本 Skill**；Master 通过 **`submit.sh --prompt`**（agent-to-agent）委托 Slave。
 
 ---
@@ -13,7 +13,7 @@
 | 角色 | 内存监控方式 | Skill |
 |------|--------------|-------|
 | **Master** | `submit.sh --prompt` + `poll-wait.sh`，转发 `partition_report` | **无** |
-| **Slave 网关** | `mem-api.sh local` / `partition`（或嵌套 script 作业） | **有** |
+| **Slave 网关** | Agent 正常路径：单次 `memory-monitor` workflow；底层实现：`mem-api.sh` / `memmon.py` | **有** |
 
 ---
 
@@ -40,7 +40,7 @@
 /home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
-`mem-api.sh partition` 内部以 `memmon.py --remote-cmd` 内联执行，cn2–cn10 无需部署文件（模拟阶段）。Slave agent 也可直接加载本 Skill 后调用上述命令。
+`mem-api.sh partition` 内部以 `memmon.py --remote-cmd` 内联执行，cn2–cn10 无需部署文件（模拟阶段）。上述命令是底层实现和操作员入口；Slave agent 的正常路径使用一次 `workflow_runner.py run memory-monitor`。
 
 ---
 
@@ -53,7 +53,7 @@
 ./master/scripts/poll-wait.sh --job-id <job_id>
 ```
 
-Slave agent 收到任务后加载 Skill，在网关侧执行 `mem-api.sh partition` 或嵌套 script 作业；Master **不**直接构造 `--command`。
+Slave agent 收到任务后加载 Skill，在网关侧单次执行 `memory-monitor` workflow；只有 runner 返回异常后才能直接执行 `mem-api.sh` 或嵌套 script 做定向诊断。Master **不**直接构造 `--command`。
 
 Script 模式回退（仅当用户明确要求 `--command`）：
 

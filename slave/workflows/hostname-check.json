@@ -1,0 +1,12 @@
+{
+  "id": "hostname-check",
+  "title": "Check hostname on every reachable partition node",
+  "match_hints": ["hostname", "host name", "节点主机名", "主机名检查"],
+  "arguments": {},
+  "implementation": {
+    "type": "per-node-command",
+    "command": "hostname -s"
+  },
+  "success_policy": {"allow_exclusion_only_partial": true},
+  "max_attempts": 2
+}
