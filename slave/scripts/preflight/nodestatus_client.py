@@ -18,7 +18,7 @@ def load_conf(script_dir: Path | None = None) -> dict[str, str]:
     ]
     values = {
         "nodestatus_enabled": "true",
-        "nodestatus_bin": "/home/smt/agents/bin/nodestatus",
+        "nodestatus_bin": "/usr/local/bin/nodestatus",
         "nodestatus_gateway_config": "/etc/nodestatus/gateway.conf",
         "nodestatus_query_timeout": "5",
         "nodestatus_unix_socket": "/run/nodestatus/nodestatus.sock",
@@ -58,12 +58,28 @@ def query_partition(
     partition: str, conf: dict[str, Any] | None = None
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, Any] | None]:
     """Return node map and report metadata, or (None, None) on any CLI failure."""
+    nodes, metadata, _ = query_partition_detailed(partition, conf)
+    return nodes, metadata
+
+
+def query_partition_detailed(
+    partition: str, conf: dict[str, Any] | None = None
+) -> tuple[
+    dict[str, dict[str, Any]] | None,
+    dict[str, Any] | None,
+    dict[str, Any],
+]:
+    """Return node data plus a classified, bounded record of the CLI attempt."""
     conf = conf or load_conf()
     if not enabled(conf):
-        return None, None
+        return None, None, {
+            "attempted": False,
+            "result": "disabled",
+            "error": None,
+        }
     binary = os.environ.get(
         "NODESTATUS_BIN",
-        str(conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"),
+        str(conf.get("nodestatus_bin") or "/usr/local/bin/nodestatus"),
     )
     socket_path = str(
         conf.get("nodestatus_unix_socket")
@@ -80,10 +96,31 @@ def query_partition(
             timeout=max(1, int(conf.get("nodestatus_query_timeout", 5))),
         )
         if result.returncode != 0:
-            return None, None
+            detail = (result.stderr or result.stdout or "no output").strip()[:300]
+            return None, None, {
+                "attempted": True,
+                "result": "command_failed",
+                "error": f"exit {result.returncode}: {detail}",
+            }
         payload = json.loads(result.stdout)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return None, None
+    except subprocess.TimeoutExpired:
+        return None, None, {
+            "attempted": True,
+            "result": "timeout",
+            "error": "nodestatus query timed out",
+        }
+    except ValueError as exc:
+        return None, None, {
+            "attempted": True,
+            "result": "invalid_json",
+            "error": str(exc)[:300],
+        }
+    except OSError as exc:
+        return None, None, {
+            "attempted": True,
+            "result": "unavailable",
+            "error": str(exc)[:300],
+        }
 
     nodes = _nodes(payload)
     by_host = {
@@ -114,7 +151,11 @@ def query_partition(
         "state_counts": state_counts,
         "query_source": "nodestatus",
     }
-    return by_host, metadata
+    return by_host, metadata, {
+        "attempted": True,
+        "result": "ok",
+        "error": None,
+    }
 
 
 def probe_partition(
@@ -123,12 +164,36 @@ def probe_partition(
     conf: dict[str, Any] | None = None,
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, Any] | None]:
     """Ask the gateway daemon to refresh hosts; callers fall back on failure."""
+    nodes, metadata, _ = probe_partition_detailed(partition, hosts, conf)
+    return nodes, metadata
+
+
+def probe_partition_detailed(
+    partition: str,
+    hosts: list[str],
+    conf: dict[str, Any] | None = None,
+) -> tuple[
+    dict[str, dict[str, Any]] | None,
+    dict[str, Any] | None,
+    dict[str, Any],
+]:
+    """Probe selected hosts and retain why the attempt was skipped or failed."""
     conf = conf or load_conf()
-    if not enabled(conf) or not hosts:
-        return None, None
+    if not enabled(conf):
+        return None, None, {
+            "attempted": False,
+            "result": "disabled",
+            "error": None,
+        }
+    if not hosts:
+        return None, None, {
+            "attempted": False,
+            "result": "not_needed",
+            "error": None,
+        }
     binary = os.environ.get(
         "NODESTATUS_BIN",
-        str(conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"),
+        str(conf.get("nodestatus_bin") or "/usr/local/bin/nodestatus"),
     )
     socket_path = str(
         conf.get("nodestatus_unix_socket")
@@ -145,10 +210,31 @@ def probe_partition(
             timeout=max(1, int(conf.get("nodestatus_query_timeout", 5))) + 30,
         )
         if result.returncode != 0:
-            return None, None
+            detail = (result.stderr or result.stdout or "no output").strip()[:300]
+            return None, None, {
+                "attempted": True,
+                "result": "command_failed",
+                "error": f"exit {result.returncode}: {detail}",
+            }
         payload = json.loads(result.stdout)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return None, None
+    except subprocess.TimeoutExpired:
+        return None, None, {
+            "attempted": True,
+            "result": "timeout",
+            "error": "nodestatus probe timed out",
+        }
+    except ValueError as exc:
+        return None, None, {
+            "attempted": True,
+            "result": "invalid_json",
+            "error": str(exc)[:300],
+        }
+    except OSError as exc:
+        return None, None, {
+            "attempted": True,
+            "result": "unavailable",
+            "error": str(exc)[:300],
+        }
     nodes = _nodes(payload)
     by_host = {
         str(node.get("host") or node.get("hostname")): node
@@ -168,7 +254,11 @@ def probe_partition(
         },
         "query_source": "nodestatus_probe",
     }
-    return by_host, metadata
+    return by_host, metadata, {
+        "attempted": True,
+        "result": "ok",
+        "error": None,
+    }
 
 
 def is_fresh_online(node: dict[str, Any] | None) -> bool:

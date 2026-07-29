@@ -42,8 +42,8 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     from nodestatus_client import (
         is_excluded as status_is_excluded,
         is_fresh_online,
-        probe_partition,
-        query_partition,
+        probe_partition_detailed,
+        query_partition_detailed,
     )
 
     job_dir = Path(job_dir)
@@ -55,7 +55,14 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     partition_name = data.get("partition") or data.get("partition_nodeset", "")
     store = NodeExclusionStore(job_dir)
     hosts = expand(data["partition_nodeset"])
-    status_nodes, status_metadata = query_partition(partition_name)
+    status_nodes, status_metadata, query_attempt = query_partition_detailed(
+        partition_name
+    )
+    probe_attempt = {
+        "attempted": False,
+        "result": "not_needed",
+        "error": None,
+    }
     if status_nodes is not None:
         refresh_hosts = [
             host for host in hosts
@@ -63,12 +70,33 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
             and not status_is_excluded(status_nodes.get(host))
             and not store.is_excluded(partition_name, host)[0]
         ]
-        refreshed, refresh_metadata = probe_partition(partition_name, refresh_hosts)
+        refreshed, refresh_metadata, probe_attempt = probe_partition_detailed(
+            partition_name, refresh_hosts
+        )
         if refreshed is not None:
             status_nodes.update(refreshed)
             status_metadata = refresh_metadata or status_metadata
-    if status_metadata:
-        data["nodestatus_snapshot"] = status_metadata
+    status_snapshot = dict(status_metadata or {})
+    status_snapshot.update({
+        "query_attempted": query_attempt["attempted"],
+        "query_result": query_attempt["result"],
+        "query_error": query_attempt["error"],
+        "probe_attempted": probe_attempt["attempted"],
+        "probe_result": probe_attempt["result"],
+        "probe_error": probe_attempt["error"],
+        "fallback_hosts": [],
+    })
+    data["nodestatus_snapshot"] = status_snapshot
+
+    def fallback_reason(host: str, node: dict | None) -> str:
+        if status_nodes is None:
+            return f"nodestatus_{query_attempt['result']}"
+        if node is None:
+            return "nodestatus_missing_host"
+        if node.get("fresh") is not True:
+            return "stale_after_probe"
+        state = str(node.get("state") or "unknown").lower()
+        return f"nodestatus_{state}"
 
     def save() -> None:
         data["updated_at"] = _utc_now()
@@ -154,6 +182,7 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
             ),
             "last_fail_at": entry.get("last_fail_at") if entry else None,
             "status_source": "nodestatus" if status_is_excluded(status_node) else "legacy",
+            "nodestatus": status_node,
         }
         data["progress"]["excluded"] = excluded_skip
         save()
@@ -173,14 +202,19 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
                 "health_state": status_node.get("health_state", "online"),
                 "fresh": True,
                 "last_seen": status_node.get("last_seen"),
+                "nodestatus": status_node,
             }
         else:
             reachable_ok, ping_ok, ssh_ok, err = preflight_host(host)
+            reason = fallback_reason(host, status_node)
             node = {
                 "ping": "ok" if ping_ok else "fail",
                 "ssh": "ok" if (ssh_ok or is_local(host)) else "fail",
                 "status_source": "legacy",
+                "status_fallback_reason": reason,
+                "nodestatus": status_node,
             }
+            data["nodestatus_snapshot"]["fallback_hosts"].append(host)
         if reachable_ok:
             node["state"] = "ok"
             node["phase"] = "preflight"

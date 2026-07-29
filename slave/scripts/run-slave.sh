@@ -111,15 +111,15 @@ if mode == "agent":
 {prompt}
 
 ## Execution rules
-1. **FIRST — partition availability:** every node in the nodeset must be checked (ping → SSH) and persisted exclusions loaded before any user task. Record reachable / excluded / unreachable in the report. Never exec on unverified or excluded nodes. (Agent jobs: preflight runs automatically into job JSON before you start — read `reachable_hosts` and `nodes` first.)
-2. Operate only on nodes inside the nodeset above.
-3. **MANDATORY fixed workflow path:** normalize the task to one built-in workflow and invoke the runner exactly once:
+1. **FIRST — reuse nodestatus-first preflight:** before this agent starts, deterministic preflight queries nodestatus, probes stale/unknown hosts, and only then falls back to ping/SSH. Read `nodestatus_snapshot`, `reachable_hosts`, `excluded_hosts`, `nodes.*.status_source`, `nodes.*.status_fallback_reason`, and `nodes.*.nodestatus`. Report this provenance; do not describe legacy fallback as if nodestatus was never attempted.
+2. **NODE-STATUS INTENT EXCEPTION:** if the task is primarily about node health, status, freshness, reachability, probe, or exclusions, load the `nodestatus` skill and directly query the gateway-local Unix socket. Produce the node-status partition report and do not invoke `workflow_runner.py`.
+3. For all other known tasks, trust the persisted availability result, operate only on verified non-excluded nodes, normalize the task to one built-in workflow, and invoke the runner exactly once:
    python3 {project_root}/scripts/workflows/workflow_runner.py run <workflow-id> --partition {partition_name} [--arg key=value] --timeout <remaining>
    Built-ins: `node-command`, `hostname-check`, `memory-monitor`, `fullcore-mpi`.
 4. If the runner returns `outcome=success`, immediately use its `partition_report.markdown` and stop. Do not inspect files, SSH nodes, poll, run preflight, or perform extra checks.
 5. Free-form diagnosis is allowed only when the runner returns `outcome=exception`. Diagnose once from its structured job/report context. If `retry_allowed=true`, make at most one targeted retry of the same workflow with `--attempt 2`; then report and stop.
 6. Direct `run-slave.sh` jobs and minimum implementation work are exception-only, for `workflow_missing` / `implementation_missing` or targeted diagnosis. Never silently clear exclusions or loop.
-7. Respect persisted exclusions: {project_root}/scripts/preflight/node_exclude.py list --partition {partition_name}
+7. Respect exclusions already recorded in job JSON. For explicit status/exclusion requests, follow the loaded `nodestatus` skill; never edit exclusion JSON directly.
 8. MPI environment (from config/slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
 9. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
 
@@ -178,13 +178,8 @@ job_dir, job_id, ssh_timeout, script_dir, preflight_dir = (
     sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
 )
 sys.path.insert(0, preflight_dir)
+from job_preflight import run_preflight
 from node_exclude import NodeExclusionStore
-from nodestatus_client import (
-    is_excluded as status_is_excluded,
-    is_fresh_online,
-    probe_partition,
-    query_partition,
-)
 path = f"{job_dir}/{job_id}.json"
 _local = socket.gethostname().split(".")[0].lower()
 
@@ -288,107 +283,15 @@ def cleanup_mpi_hosts(hosts):
     except Exception:
         pass
 
-with open(path) as f:
-    data = json.load(f)
-
+data = run_preflight(job_dir, job_id, ssh_timeout)
 partition_name = data.get("partition") or data.get("partition_nodeset", "")
 store = NodeExclusionStore(job_dir)
 hosts = expand(data["partition_nodeset"])
-status_nodes, status_metadata = query_partition(partition_name)
-if status_nodes is not None:
-    refresh_hosts = [
-        host for host in hosts
-        if not is_fresh_online(status_nodes.get(host))
-        and not status_is_excluded(status_nodes.get(host))
-        and not store.is_excluded(partition_name, host)[0]
-    ]
-    refreshed, refresh_metadata = probe_partition(partition_name, refresh_hosts)
-    if refreshed is not None:
-        status_nodes.update(refreshed)
-        status_metadata = refresh_metadata or status_metadata
-if status_metadata:
-    data["nodestatus_snapshot"] = status_metadata
-data["progress"] = {"total": len(hosts), "ok": 0, "fail": 0, "pending": len(hosts), "excluded": 0}
-data["reachable_hosts"] = []
-data["excluded_hosts"] = []
-data["newly_excluded"] = []
-save(data)
-
-# Skip persistently excluded nodes (preflight fail or frequent exec errors)
-excluded_skip = 0
-for host in hosts:
-    status_node = status_nodes.get(host) if status_nodes is not None else None
-    excluded, entry = store.is_excluded(partition_name, host)
-    if not excluded and not status_is_excluded(status_node):
-        continue
-    excluded_skip += 1
-    data["excluded_hosts"].append(host)
-    status_exclusion = status_node.get("exclusion", {}) if isinstance(status_node, dict) else {}
-    data["nodes"][host] = {
-        "state": "excluded",
-        "phase": "skipped",
-        "excluded": True,
-        "exclude_reason": entry.get("reason") if entry else status_exclusion.get("reason"),
-        "excluded_since": entry.get("excluded_since") if entry else status_exclusion.get("excluded_since"),
-        "last_fail_at": entry.get("last_fail_at") if entry else None,
-        "status_source": "nodestatus" if status_is_excluded(status_node) else "legacy",
-    }
-    data["progress"]["excluded"] = excluded_skip
-    save(data)
-
-# Preflight: ping + SSH before every command (non-excluded only)
-data["status"] = "preflight"
-data["phase"] = "preflight"
-ok = fail = 0
-reachable = []
-for host in hosts:
-    if data["nodes"].get(host, {}).get("state") == "excluded":
-        continue
-    status_node = status_nodes.get(host) if status_nodes is not None else None
-    if is_fresh_online(status_node):
-        reachable_ok, ping_ok, ssh_ok, err = True, True, True, ""
-        node = {
-            "ping": "cached",
-            "ssh": "cached",
-            "status_source": "nodestatus",
-            "health_state": status_node.get("health_state", "online"),
-            "fresh": True,
-            "last_seen": status_node.get("last_seen"),
-        }
-    else:
-        reachable_ok, ping_ok, ssh_ok, err = preflight_host(host)
-        node = {
-            "ping": "ok" if ping_ok else "fail",
-            "ssh": "ok" if (ssh_ok or is_local(host)) else "fail",
-            "status_source": "legacy",
-        }
-    if reachable_ok:
-        node["state"] = "ok"
-        node["phase"] = "preflight"
-        reachable.append(host)
-        ok += 1
-    else:
-        node["state"] = "fail"
-        node["phase"] = "preflight"
-        node["error"] = err
-        data["failures"].append({"node": host, "phase": "preflight", "error": err})
-        fail += 1
-        store.record_preflight_failure(partition_name, host, err)
-        ex_entry = store.get_entry(partition_name, host)
-        node["excluded"] = True
-        node["exclude_reason"] = ex_entry.get("reason") if ex_entry else err
-        if host not in data["newly_excluded"]:
-            data["newly_excluded"].append(host)
-    data["nodes"][host] = node
-    data["reachable_hosts"] = reachable
-    data["progress"] = {
-        "total": len(hosts),
-        "ok": ok,
-        "fail": fail,
-        "pending": len(hosts) - ok - fail - excluded_skip,
-        "excluded": excluded_skip + len(data["newly_excluded"]),
-    }
-    save(data)
+fail = sum(
+    1 for node in data.get("nodes", {}).values()
+    if node.get("phase") == "preflight" and node.get("state") == "fail"
+)
+excluded_skip = len(data.get("excluded_hosts", []))
 
 # Execute
 data["status"] = "running"
@@ -401,10 +304,17 @@ for host in hosts:
     nstate = data["nodes"].get(host, {}).get("state")
     if nstate in ("fail", "excluded"):
         continue
+    previous = data["nodes"].get(host, {})
     rc, out = ssh_run(host, cmd=data["command"], run_timeout=exec_timeout)
     if rc == 0:
         store.record_success(partition_name, host)
-        data["nodes"][host] = {"state": "ok", "phase": "exec", "exit_code": 0, "stdout": out.strip()[:8000]}
+        data["nodes"][host] = {
+            **previous,
+            "state": "ok",
+            "phase": "exec",
+            "exit_code": 0,
+            "stdout": out.strip()[:8000],
+        }
         exec_ok += 1
     else:
         err = f"exit {rc}: {(out.strip()[:180] or 'no output')}"
@@ -412,6 +322,7 @@ for host in hosts:
             cleanup_mpi_hosts(data.get("reachable_hosts", []))
         ex_entry = store.record_exec_failure(partition_name, host, err)
         node = {
+            **previous,
             "state": "fail",
             "phase": "exec",
             "exit_code": rc,
@@ -545,7 +456,7 @@ cmd_agent_worker() {
   agent_log="$JOB_DIR/${job_id}.agent.log"
   [[ -f "$path" && -f "$prompt_file" ]] || exit 1
 
-  # Partition availability first (ping/SSH + exclusions) before launching Slave agent LLM.
+  # Partition availability first (nodestatus → targeted probe → legacy fallback).
   python3 "$script_dir/preflight/job_preflight.py" "$JOB_DIR" "$job_id" "$NODE_SSH_TIMEOUT"
 
   local requested_runtime runtime

@@ -7,6 +7,7 @@ permission:
     "*": allow
   skill:
     memory-monitor: deny
+    nodestatus: deny
     add-tools2: allow
 ---
 
@@ -193,6 +194,29 @@ When status is terminal (`done|partial|failed`), read **`partition_report`** fro
 python3 -c "import json; d=json.load(open('../var/agent-jobs/<id>.last.json')); print(d.get('partition_report',{}).get('markdown',''))"
 ```
 
+## Node status (agent-to-agent)
+
+The **`nodestatus` skill is Slave-only**. Master must not load it locally or
+query compute nodes. For node health, status, freshness, reachability, probe,
+or exclusion requests, explicitly instruct the owning Slave to load the skill:
+
+```bash
+./scripts/submit.sh --partition test --prompt \
+  '检查 test 分区节点状态：加载 nodestatus skill，直接查询本地 Unix socket；汇总 state、health_state、freshness、排除原因和 nodestatus/legacy fallback 来源，输出 partition report' \
+  --task nodestatus
+./scripts/poll-wait.sh --job-id <job_id>
+```
+
+Present the returned `partition_report.markdown`. If it reports legacy
+fallback, also report `nodestatus_snapshot.query_result`,
+`probe_result`, and each affected node's `status_fallback_reason`; do not say
+that nodestatus was unused merely because fallback occurred.
+
+For an explicitly requested cross-partition control-plane summary, Master may
+run `python3 scripts/nodestatus-summary.py`; it fans out only to registered
+Slave gateways. Per-partition diagnosis and all mutations still go through the
+owning Slave agent.
+
 ## Reporting to user (critical)
 
 - **Primary:** paste or paraphrase `partition_report.markdown` from Slave
@@ -202,7 +226,8 @@ python3 -c "import json; d=json.load(open('../var/agent-jobs/<id>.last.json')); 
 |------------|------|------|
 | `add-tools2` | `.opencode/skills/add-tools2/` | User invokes `/add-tools2` or asks to scaffold a tool skill |
 
-`memory-monitor` is **Slave-only** — denied on Master (delegate via `submit.sh --prompt`).
+`memory-monitor` and `nodestatus` are **Slave-only** — denied on Master
+(delegate via `submit.sh --prompt`).
 
 ## Forbidden
 
@@ -213,6 +238,8 @@ python3 -c "import json; d=json.load(open('../var/agent-jobs/<id>.last.json')); 
 - Reconstructing partition health from raw `nodes.*` when `partition_report` exists
 - Node-by-node polling from Master
 - **Memory monitor on Master:** do not use skill `memory-monitor`, do not run `scripts/monitor/mem-api.sh` or `memmon.py` locally for partition-wide checks — only `submit.sh` → `poll-wait.sh`
+- **Node status on Master:** do not load `nodestatus`, query compute nodes, or
+  mutate exclusions locally — delegate to the owning Slave
 
 ## Configuration
 

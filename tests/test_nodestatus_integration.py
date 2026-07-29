@@ -81,12 +81,29 @@ print(json.dumps({
             result = run_preflight(self.root, "job-1")
         self.assertEqual(self.calls.read_text().splitlines(), ["ping", "ssh"])
         self.assertEqual(result["nodes"]["cn101"]["status_source"], "legacy")
+        self.assertFalse(result["nodes"]["cn101"]["nodestatus"]["fresh"])
+        self.assertEqual(
+            result["nodes"]["cn101"]["status_fallback_reason"],
+            "stale_after_probe",
+        )
+        self.assertEqual(result["nodestatus_snapshot"]["query_result"], "ok")
+        self.assertEqual(result["nodestatus_snapshot"]["probe_result"], "ok")
+        self.assertEqual(result["nodestatus_snapshot"]["fallback_hosts"], ["cn101"])
 
     def test_total_cli_failure_runs_legacy_checks(self):
         with mock.patch.dict(os.environ, {**self.env, "FAKE_NODESTATUS": "fail"}):
             result = run_preflight(self.root, "job-1")
         self.assertEqual(self.calls.read_text().splitlines(), ["ping", "ssh"])
-        self.assertNotIn("nodestatus_snapshot", result)
+        self.assertEqual(
+            result["nodestatus_snapshot"]["query_result"], "command_failed"
+        )
+        self.assertTrue(result["nodestatus_snapshot"]["query_attempted"])
+        self.assertIn("exit 1", result["nodestatus_snapshot"]["query_error"])
+        self.assertEqual(result["nodestatus_snapshot"]["fallback_hosts"], ["cn101"])
+        self.assertEqual(
+            result["nodes"]["cn101"]["status_fallback_reason"],
+            "nodestatus_command_failed",
+        )
 
     def test_stale_status_is_refreshed_by_gateway_probe(self):
         with mock.patch.dict(
@@ -98,6 +115,8 @@ print(json.dumps({
         self.assertEqual(
             result["nodestatus_snapshot"]["query_source"], "nodestatus_probe"
         )
+        self.assertTrue(result["nodestatus_snapshot"]["probe_attempted"])
+        self.assertEqual(result["nodestatus_snapshot"]["probe_result"], "ok")
 
     def test_script_worker_also_reuses_fresh_status(self):
         job = {
@@ -141,7 +160,6 @@ print(json.dumps({
                 "cn101": {
                     "excluded": True,
                     "reason": "legacy reason",
-                    "excluded_since": "2026-07-23T08:00:00Z",
                     "extra": "unchanged",
                 }
             }
@@ -167,6 +185,7 @@ class DeploymentContractTest(unittest.TestCase):
     def test_generated_config_uses_nodestatus_contract(self):
         gateway = (ROOT / "scripts/deploy/deploy-slave.sh").read_text()
         agent = (ROOT / "scripts/deploy/deploy-nodestatus-agents.sh").read_text()
+        slave_conf = (ROOT / "slave/config/slave.conf").read_text()
         for key in (
             "socket_path",
             "store_path",
@@ -179,6 +198,28 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertNotIn("/v1/heartbeat", agent)
         self.assertIn("interval 20s", agent)
         self.assertIn("auth_key_file", agent)
+        self.assertIn("nodestatus_bin /usr/local/bin/nodestatus", slave_conf)
+        self.assertIn("agent_opencode_bin /usr/local/bin/opencode", slave_conf)
+        self.assertIn('"$MASTER_CONFIG/partitions.conf"', gateway)
+        self.assertIn("registry_nodeset", gateway)
+        self.assertIn("ExecStart=$NODESTATUS_BIN_PATH", gateway)
+
+
+class AgentPolicyContractTest(unittest.TestCase):
+    def test_generated_slave_prompt_routes_status_intent_to_skill(self):
+        runner = (ROOT / "slave/scripts/run-slave.sh").read_text()
+        self.assertIn("nodestatus_snapshot", runner)
+        self.assertIn("status_source", runner)
+        self.assertIn("load the `nodestatus` skill", runner)
+        self.assertIn("node health, status, freshness", runner)
+        self.assertIn("nodestatus-first preflight", runner)
+
+    def test_master_delegates_nodestatus_skill_to_slave(self):
+        master = (ROOT / "master/.opencode/agents/master-agent.md").read_text()
+        self.assertIn("nodestatus: deny", master)
+        self.assertIn("## Node status (agent-to-agent)", master)
+        self.assertIn("加载 nodestatus skill", master)
+        self.assertIn("--task nodestatus", master)
 
 
 class MasterSummaryTest(unittest.TestCase):

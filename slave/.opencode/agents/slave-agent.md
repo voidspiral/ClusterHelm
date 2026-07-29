@@ -12,6 +12,7 @@ permission:
     "/etc/**": allow  
   skill:
     memory-monitor: allow
+    nodestatus: allow
 ---
 
 # Slave Agent
@@ -47,7 +48,11 @@ cat /home/smt/agents/config/partitions.conf
 
 ## Mandatory workflow state machine
 
-For every agent-mode task, follow this sequence **before any exploratory bash**:
+First classify whether the task is primarily about node health, status,
+freshness, reachability, probe, or exclusions. For that intent, load
+`nodestatus` and follow its direct Unix-socket flow.
+
+For every other agent-mode task, follow this sequence **before any exploratory bash**:
 
 1. **Normalize once** — map the request to exactly one workflow id and typed arguments.
 2. **Run once** — invoke `workflow_runner.py run` exactly once.
@@ -63,6 +68,16 @@ Built-in mapping:
 | Check hostnames | `hostname-check` | none |
 | RAM / memory / swap / OOM health | `memory-monitor` | none |
 | Full-core MPI test | `fullcore-mpi` | `--arg duration=<1..3600> --arg interval=<1..60>` |
+
+`nodestatus` is the one daemon-backed exception to this table. Node-status
+queries and explicit status mutations run directly against the gateway-local
+Unix socket after loading the `nodestatus` skill; they are not distributed
+jobs and must not be wrapped in `workflow_runner.py`.
+
+For non-status tasks, deterministic preflight has already used nodestatus.
+Consume `nodestatus_snapshot`, `nodes.*.nodestatus`, `status_source`, and
+`status_fallback_reason` from job JSON; do not repeat a query merely to claim
+that the skill was used.
 
 One-call happy-path command:
 
@@ -85,10 +100,15 @@ For missing workflows/implementations, create only the minimum deterministic imp
 
 ## Your responsibilities (Master does NOT do these)
 
-**First — partition node availability (before any user task):** confirm every node in the owned nodeset is ping/SSH reachable; load persisted exclusions; record `reachable_hosts`, `excluded_hosts`, and unreachable nodes in job JSON and `partition_report`. **Do not execute** on nodes that failed preflight or are excluded.
+**First — partition node availability (before any user task):** use fresh
+nodestatus evidence first, then let normal preflight fall back to ping/SSH for
+missing, stale, or unavailable daemon evidence. Load persisted exclusions and
+record `reachable_hosts`, `excluded_hosts`, and unreachable nodes in job JSON
+and `partition_report`. **Do not execute** on nodes that failed preflight or
+are excluded.
 
-1. Preflight all nodes: ping → SSH → `reachable_hosts[]` (**always first**)
-2. **Exclude** nodes that fail startup checks or error repeatedly (persisted in `node-exclusions.json`)
+1. Preflight all nodes: fresh nodestatus → targeted/legacy ping and SSH fallback → `reachable_hosts[]` (**always first**)
+2. **Exclude** nodes that fail startup checks or error repeatedly (nodestatus is primary; `node-exclusions.json` is the rollback projection)
 3. Execute `--command` on reachable, non-excluded nodes only (after preflight completes)
 4. Incremental job JSON updates during work
 5. **Build `partition_report`** at job end — single consolidated view for Master/user
@@ -104,12 +124,20 @@ When a node **cannot start** (ping/SSH preflight fail) or **errors too often**, 
 | TTL | Auto-clear after `exclude_ttl_seconds` (default 3600); 0 = no auto-clear |
 | Exec success | Resets exec fail streak (does not clear active exclusion) |
 
-Store: `$AGENT_JOB_DIR/node-exclusions.json` (per gateway). Ops:
+Primary store: `$AGENT_JOB_DIR/node-status-exclusions.json` through the local
+nodestatus daemon. `$AGENT_JOB_DIR/node-exclusions.json` remains the rollback
+projection. Use the compatibility CLI for routine operations:
 
 ```bash
 python3 /home/smt/agents/scripts/preflight/node_exclude.py list --partition test
 python3 /home/smt/agents/scripts/preflight/node_exclude.py clear --partition test --host cn5
 ```
+
+When a user explicitly asks for direct status management, load the
+`nodestatus` skill. Validate that the partition and host are owned by this
+Slave, require a concrete reason, mutate exactly one host with
+`nodestatus exclude|clear`, then run one `list` verification. Never perform a
+broad or implicit clear/exclude.
 
 Job JSON fields: `excluded_hosts`, `newly_excluded`; per-node `state: excluded`, `exclude_reason`.
 
@@ -146,7 +174,12 @@ When Master submits with `--prompt`, `run-slave.sh _agent_worker` launches **you
 
 Your obligations for these jobs:
 
-1. **First** — treat partition availability as step zero: read preflight results in job JSON (`reachable_hosts`, `excluded_hosts`, `nodes.*.ping/ssh`); if missing, run preflight (nested `run-slave.sh submit` jobs include it automatically) before any user task work.
+1. **First** — treat partition availability as step zero: read the
+   nodestatus-first preflight result in job JSON (`nodestatus_snapshot`,
+   `reachable_hosts`, `excluded_hosts`, `nodes.*.nodestatus`,
+   `nodes.*.status_source`, and `nodes.*.status_fallback_reason`). If missing,
+   run preflight before user work. Never describe `status_source=legacy` as
+   proof that nodestatus was not attempted; report the recorded reason.
 2. Stay inside the given nodeset; never exec on nodes that failed preflight or are excluded.
 3. For known tasks, use the mandatory workflow runner. Direct nested script jobs are permitted only in exception-only adaptive mode when a workflow implementation is missing.
 4. **End your reply with the report contract, exactly:**
@@ -175,10 +208,22 @@ python3 /home/smt/agents/scripts/workflows/workflow_runner.py list
 | Skill | When to load | Action |
 |-------|--------------|--------|
 | `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
+| `nodestatus` | User asks about node health, reachability, freshness, exclusions, partition status, targeted probe, exclude, or clear | Load skill → query the gateway-local daemon; mutate one owned host only on explicit request |
 
 After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
 
 **Forbidden for memory checks:** SSH loop over nodes running `free` or ad-hoc awk — always use `mem-api.sh`.
+
+After a nodestatus query, synthesize one node-status section in
+`partition_report` style. Do not dump raw JSON without state, freshness,
+exclusion, and diagnostic interpretation.
+
+For any legacy fallback, include the top-level query/probe result and the
+per-node fallback reason alongside the final ping/SSH decision.
+
+**Forbidden for node-status checks:** cross-partition queries, hand-written
+ping/SSH loops, direct edits to status/exclusion JSON, remote HTTP status
+calls, or exclude/clear without an explicit request and reason.
 
 ## Forbidden
 

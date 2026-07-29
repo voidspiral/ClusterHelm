@@ -186,7 +186,7 @@ class NodeExclusionStore:
         daemon = self._daemon_exclusions(partition)
         if daemon is not None:
             binary = str(
-                self.conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"
+                self.conf.get("nodestatus_bin") or "/usr/local/bin/nodestatus"
             )
             socket_path = str(
                 self.conf.get("nodestatus_unix_socket")
@@ -293,7 +293,7 @@ class NodeExclusionStore:
         daemon = self._daemon_exclusions(partition)
         if daemon is not None:
             binary = str(
-                self.conf.get("nodestatus_bin") or "/home/smt/agents/bin/nodestatus"
+                self.conf.get("nodestatus_bin") or "/usr/local/bin/nodestatus"
             )
             socket_path = str(
                 self.conf.get("nodestatus_unix_socket")
