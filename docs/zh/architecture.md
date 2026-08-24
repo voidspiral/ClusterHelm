@@ -63,7 +63,7 @@ flowchart TB
 
   U --> MA
   MS -->|仅 SSH 到网关| RS
-  MP -->|SSH poll| RS
+  MP -->|SSH wait（完成信号）| RS
   WK -->|preflight ping/SSH + exec| N1
   WK --> N2
   WK --> N3
@@ -98,7 +98,7 @@ submit.sh     ──SSH──►  run-slave.sh submit  ──►  /home/smt/agen
 poll-wait.sh  ──SSH──►  run-slave.sh wait    ◄──  JSON（阻塞至终态后返回，无需多次轮询）
 ```
 
-`run-slave.sh wait` 在网关侧以递增 backoff（5s→30s）轮询本机 JSON，等 status 到达 `done|partial|failed` 后 `cat` 返回。Master 只需 **一次 SSH 调用**，无需多次轮询。
+Workers 在终态写入 job JSON 以及 sidecar `<job_id>.done`（成功 `done`/`partial` 与失败 `failed` 都会通知）。`run-slave.sh wait` 在网关侧阻塞等待该完成信号（优先 `inotifywait`，否则 ≤1s 轮询 `.done`），然后 `cat` 返回 JSON。Master 只需 **一次 SSH 调用**，无需多次轮询，也无需等到 `--timeout` 才发现任务已结束。
 
 Master 将最新 poll 缓存在 `var/agent-jobs/<job_id>.last.json`。
 
@@ -174,7 +174,7 @@ sequenceDiagram
     Exec->>RS: workflow_runner.py run（单次调用）
     RS->>Node: 确定性 preflight + exec
     Exec->>RS: AGENT_STATUS + PARTITION_REPORT 契约
-    RS->>RS: 解析为 partition_report
+    RS->>RS: 立即 finalize 并写入 .done，然后结束 OpenCode
   end
   MA->>PS: poll-wait --job-id（单次阻塞，SSH → run-slave.sh wait）
   PS->>RS: SSH wait
