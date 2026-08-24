@@ -155,6 +155,8 @@ When a job finishes, job JSON must include `partition_report`:
 
 `run-slave.sh` generates this automatically. When using OpenCode interactively, **you** must synthesize the same consolidated report — do not dump raw per-node logs without a summary header.
 
+Print the report contract (`AGENT_STATUS` plus `PARTITION_REPORT_BEGIN`/`END`) as soon as the report is complete. The `_agent_worker` finalizes job JSON, writes the completion signal, and stops the CLI; do not keep the session open after the contract.
+
 Report template:
 
 ```markdown
