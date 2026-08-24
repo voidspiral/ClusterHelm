@@ -6,10 +6,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SLAVE_DIR="$ROOT/slave"
 MASTER_CONFIG="$ROOT/master/config"
+MASTER_CONF="$MASTER_CONFIG/master.conf"
 GATEWAY="cn1"
 NODESTATUS_BINARY="${NODESTATUS_BINARY:-}"
 NODESTATUS_CONFIG="${NODESTATUS_GATEWAY_CONFIG:-}"
 NODESTATUS_KEY_FILE="${NODESTATUS_KEY_FILE:-}"
+REMOTE_PROJECT_OVERRIDE=""
+PRINT_CONFIG=0
+
+read_master_default() {
+  local key="$1" fallback="$2"
+  if [[ -f "$MASTER_CONF" ]]; then
+    local v
+    v=$(awk -v key="$key" '{ sub(/\r$/, "") } $1 == key { print $2; exit }' "$MASTER_CONF")
+    [[ -n "$v" ]] && { echo "$v"; return; }
+  fi
+  echo "$fallback"
+}
+
 if [[ $# -gt 0 && "$1" != --* ]]; then
   GATEWAY="$1"
   shift
@@ -19,11 +33,22 @@ while [[ $# -gt 0 ]]; do
     --nodestatus-binary) NODESTATUS_BINARY="$2"; shift 2 ;;
     --nodestatus-config) NODESTATUS_CONFIG="$2"; shift 2 ;;
     --nodestatus-key-file) NODESTATUS_KEY_FILE="$2"; shift 2 ;;
+    --remote-project) REMOTE_PROJECT_OVERRIDE="$2"; shift 2 ;;
+    --print-config) PRINT_CONFIG=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
-REMOTE_PROJECT="/home/smt/agents"
+
+# Deploy root on the gateway: master.conf remote_project (same key submit/poll-wait use).
+REMOTE_PROJECT="${REMOTE_PROJECT_OVERRIDE:-$(read_master_default remote_project /home/smt/agents)}"
 REMOTE_JOB_DIR="$REMOTE_PROJECT/var/agent-jobs"
+
+if [[ "$PRINT_CONFIG" -eq 1 ]]; then
+  echo "gateway=$GATEWAY"
+  echo "remote_project=$REMOTE_PROJECT"
+  echo "remote_job_dir=$REMOTE_JOB_DIR"
+  exit 0
+fi
 NODESTATUS_SKILL="$SLAVE_DIR/.opencode/skills/nodestatus"
 SLAVE_AGENT="$SLAVE_DIR/.opencode/agents/slave-agent.md"
 
@@ -91,27 +116,35 @@ NODESTATUS_ENABLED="$(conf_value nodestatus_enabled)"
 echo "  nodestatus skill, permission, and config: valid"
 
 echo "opencode src: $SLAVE_DIR/.opencode"
-echo "opencode cn1: $REMOTE_PROJECT/.opencode"
+echo "remote_project (master.conf): $REMOTE_PROJECT"
+echo "opencode dest: $GATEWAY:$REMOTE_PROJECT/.opencode"
 
-echo "== Deploy slave agent to $GATEWAY =="
+echo "== Deploy slave agent to $GATEWAY ($REMOTE_PROJECT) =="
+
+# Keep host-specific OpenCode path if the repo default is not installed on the gateway.
+EXISTING_OPENCODE_BIN="$(
+  ssh -o ConnectTimeout=15 "$GATEWAY" \
+    "awk '\$1==\"agent_opencode_bin\"{print \$2; exit}' '$REMOTE_PROJECT/config/slave.conf' 2>/dev/null || true"
+)"
 
 ssh -o ConnectTimeout=15 "$GATEWAY" \
   "mkdir -p '$REMOTE_JOB_DIR' \
-    '$REMOTE_PROJECT/scripts/preflight' \
-    '$REMOTE_PROJECT/scripts/workflows' \
     '$REMOTE_PROJECT/scripts/monitor' \
     '$REMOTE_PROJECT/scripts/mpi' \
-    '$REMOTE_PROJECT/tests/mpi' \
-    '$REMOTE_PROJECT/workflows' \
-    '$REMOTE_PROJECT/config' \
-    '$REMOTE_PROJECT/.opencode'"
+    '$REMOTE_PROJECT/tests/mpi'"
 
-# --- OpenCode agents + skills ---
+# Sync the whole slave/ tree to remote_project. Do not touch var/ (job store).
+echo "  Syncing slave/ → $GATEWAY:$REMOTE_PROJECT/"
+tar -C "$SLAVE_DIR" \
+  --exclude=var \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude=.git \
+  -cf - . \
+| ssh -o ConnectTimeout=15 "$GATEWAY" "tar -C '$REMOTE_PROJECT' -xf -"
+echo "  Slave tree:  $GATEWAY:$REMOTE_PROJECT/"
+
 if [[ -d "$SLAVE_DIR/.opencode" ]]; then
-  scp -o ConnectTimeout=15 -r \
-    "$SLAVE_DIR/.opencode/"* \
-    "$GATEWAY:$REMOTE_PROJECT/.opencode/"
-  echo "  OpenCode:    $GATEWAY:$REMOTE_PROJECT/.opencode/"
   ssh -o ConnectTimeout=15 "$GATEWAY" "
     set -e
     for file in SKILL.md SKILL.zh.md reference.md README.zh.md; do
@@ -134,56 +167,13 @@ if [[ -d "$SLAVE_DIR/.opencode" ]]; then
   "
   echo "  OpenCode validation: remote bundle complete"
 fi
-if [[ -f "$SLAVE_DIR/opencode.json" ]]; then
-  scp -o ConnectTimeout=15 \
-    "$SLAVE_DIR/opencode.json" \
-    "$GATEWAY:$REMOTE_PROJECT/opencode.json"
-  echo "  OpenCode cfg: $GATEWAY:$REMOTE_PROJECT/opencode.json (default_agent=slave-agent)"
-fi
 
-# --- Config: slave.conf + partitions.conf (from Master SoT) ---
+# Master SoT overlay: partitions.conf (slave.conf already came from slave/)
 scp -o ConnectTimeout=15 \
-  "$SLAVE_DIR/config/slave.conf" \
   "$MASTER_CONFIG/partitions.conf" \
-  "$GATEWAY:$REMOTE_PROJECT/config/"
-check_nodestatus_binary=true
-[[ -n "$NODESTATUS_BINARY" ]] && check_nodestatus_binary=false
-ssh -o ConnectTimeout=15 "$GATEWAY" "
-  test -x '$OPENCODE_BIN_PATH' || {
-    echo 'Configured OpenCode binary is not executable: $OPENCODE_BIN_PATH' >&2
-    exit 2
-  }
-  if [[ '$NODESTATUS_ENABLED' =~ ^(1|true|yes|on)$ ]] && $check_nodestatus_binary; then
-    test -x '$NODESTATUS_BIN_PATH' || {
-      echo 'Configured nodestatus binary is not executable: $NODESTATUS_BIN_PATH' >&2
-      exit 2
-    }
-  fi
-"
-echo "  Runtime binaries: configured paths are executable"
+  "$GATEWAY:$REMOTE_PROJECT/config/partitions.conf"
 
-# --- Runner + resolve-partition + preflight ---
-scp -o ConnectTimeout=15 \
-  "$SLAVE_DIR/scripts/run-slave.sh" \
-  "$SLAVE_DIR/scripts/resolve-partition.py" \
-  "$GATEWAY:$REMOTE_PROJECT/scripts/"
-
-scp -o ConnectTimeout=15 \
-  "$SLAVE_DIR/scripts/preflight/job_preflight.py" \
-  "$SLAVE_DIR/scripts/preflight/node_exclude.py" \
-  "$SLAVE_DIR/scripts/preflight/nodestatus_client.py" \
-  "$GATEWAY:$REMOTE_PROJECT/scripts/preflight/"
-
-scp -o ConnectTimeout=15 \
-  "$SLAVE_DIR/scripts/workflows/workflow_runner.py" \
-  "$GATEWAY:$REMOTE_PROJECT/scripts/workflows/"
-
-scp -o ConnectTimeout=15 \
-  "$SLAVE_DIR/workflows/"*.json \
-  "$GATEWAY:$REMOTE_PROJECT/workflows/"
-
-# Workflow implementations are deployed with the runner so a catalog entry
-# cannot drift from the executable it references.
+# Workflow implementations live under repo scripts/, not slave/.
 scp -o ConnectTimeout=15 \
   "$ROOT/scripts/monitor/mem-api.sh" \
   "$ROOT/scripts/monitor/memmon.py" \
@@ -198,18 +188,51 @@ scp -o ConnectTimeout=15 \
   "$ROOT/tests/mpi/fullcore_test.c" \
   "$GATEWAY:$REMOTE_PROJECT/tests/mpi/"
 
-ssh "$GATEWAY" "chmod +x \
-  '$REMOTE_PROJECT/scripts/run-slave.sh' \
-  '$REMOTE_PROJECT/scripts/resolve-partition.py' \
-  '$REMOTE_PROJECT/scripts/preflight/job_preflight.py' \
-  '$REMOTE_PROJECT/scripts/preflight/node_exclude.py' \
-  '$REMOTE_PROJECT/scripts/preflight/nodestatus_client.py' \
-  '$REMOTE_PROJECT/scripts/workflows/workflow_runner.py' \
-  '$REMOTE_PROJECT/scripts/monitor/mem-api.sh' \
-  '$REMOTE_PROJECT/scripts/monitor/memmon.py' \
-  '$REMOTE_PROJECT/scripts/mpi/run-fullcore-test.sh' \
-  '$REMOTE_PROJECT/scripts/mpi/cleanup-mpi.sh'"
-echo "  $REMOTE_JOB_DIR inherits default umask from mkdir -p"
+check_nodestatus_binary=true
+[[ -n "$NODESTATUS_BINARY" ]] && check_nodestatus_binary=false
+ssh -o ConnectTimeout=15 "$GATEWAY" "
+  set -e
+  conf='$REMOTE_PROJECT/config/slave.conf'
+  want='$OPENCODE_BIN_PATH'
+  existing='${EXISTING_OPENCODE_BIN:-}'
+  if [[ -x \"\$want\" ]]; then
+    :
+  elif [[ -n \"\$existing\" && -x \"\$existing\" ]]; then
+    tmp=\$(mktemp)
+    awk -v bin=\"\$existing\" '
+      \$1==\"agent_opencode_bin\" { print \"agent_opencode_bin \" bin; next }
+      { print }
+    ' \"\$conf\" > \"\$tmp\" && cat \"\$tmp\" > \"\$conf\" && rm -f \"\$tmp\"
+    echo \"  Preserved gateway OpenCode: \$existing\" >&2
+  else
+    echo \"Configured OpenCode binary is not executable: \$want\" >&2
+    exit 2
+  fi
+  if [[ '$NODESTATUS_ENABLED' =~ ^(1|true|yes|on)$ ]] && $check_nodestatus_binary; then
+    test -x '$NODESTATUS_BIN_PATH' || {
+      echo 'Configured nodestatus binary is not executable: $NODESTATUS_BIN_PATH' >&2
+      exit 2
+    }
+  fi
+  chmod +x \
+    '$REMOTE_PROJECT/scripts/run-slave.sh' \
+    '$REMOTE_PROJECT/scripts/job_complete.py' \
+    '$REMOTE_PROJECT/scripts/resolve-partition.py' \
+    '$REMOTE_PROJECT/scripts/preflight/job_preflight.py' \
+    '$REMOTE_PROJECT/scripts/preflight/node_exclude.py' \
+    '$REMOTE_PROJECT/scripts/preflight/nodestatus_client.py' \
+    '$REMOTE_PROJECT/scripts/workflows/workflow_runner.py' \
+    '$REMOTE_PROJECT/scripts/monitor/mem-api.sh' \
+    '$REMOTE_PROJECT/scripts/monitor/memmon.py' \
+    '$REMOTE_PROJECT/scripts/mpi/run-fullcore-test.sh' \
+    '$REMOTE_PROJECT/scripts/mpi/cleanup-mpi.sh'
+  owner=\$(stat -c %U:%G '$REMOTE_PROJECT' 2>/dev/null || true)
+  if [[ -n \"\$owner\" && \"\$owner\" != *unknown* ]]; then
+    find '$REMOTE_PROJECT' -mindepth 1 -maxdepth 1 ! -name var -exec chown -R \"\$owner\" {} +
+  fi
+"
+echo "  Runtime binaries: configured paths are executable"
+echo "  $REMOTE_JOB_DIR left intact (job store not overwritten)"
 
 # --- nodestatus gateway config/service (binary and key may already exist) ---
 if [[ "$NODESTATUS_ENABLED" =~ ^(1|true|yes|on)$ ]]; then

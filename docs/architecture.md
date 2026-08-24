@@ -63,7 +63,7 @@ flowchart TB
 
   U --> MA
   MS -->|SSH to gateway only| RS
-  MP -->|SSH poll| RS
+  MP -->|SSH wait (completion signal)| RS
   WK -->|preflight ping/SSH + exec| N1
   WK --> N2
   WK --> N3
@@ -94,11 +94,13 @@ flowchart LR
 **Job JSON** is the contract between Master and gateway:
 
 ```
-submit.sh  ──SSH──►  run-slave.sh submit  ──►  /home/smt/agents/var/agent-jobs/<job_id>.json
-poll-wait.sh    ──SSH──►  run-slave.sh poll    ◄──  same JSON (+ partition_report at end)
+submit.sh     ──SSH──►  run-slave.sh submit  ──►  /home/smt/agents/var/agent-jobs/<job_id>.json
+poll-wait.sh  ──SSH──►  run-slave.sh wait    ◄──  JSON (blocks on completion signal, then returns)
 ```
 
-Master caches the latest poll in `var/agent-jobs/<job_id>.last.json`.
+Workers write terminal job JSON plus a sidecar `<job_id>.done`. `run-slave.sh wait` blocks on that signal (inotify, 1s poll fallback) for both success (`done`/`partial`) and failure (`failed`). Master uses **one SSH call**; it does not poll in a loop.
+
+Master caches the latest wait result in `var/agent-jobs/<job_id>.last.json`.
 
 ---
 
@@ -174,11 +176,10 @@ sequenceDiagram
     Exec->>RS: AGENT_STATUS + PARTITION_REPORT contract
     RS->>RS: parse into partition_report
   end
-  loop poll until done|partial|failed
-    MA->>PS: poll --job-id
-    PS->>RS: SSH poll
-    RS-->>PS: job JSON
-  end
+  Exec->>RS: write terminal JSON + <job_id>.done
+  MA->>PS: poll-wait --job-id (single blocking SSH → run-slave.sh wait)
+  PS->>RS: SSH wait (inotify / 1s fallback on .done)
+  RS-->>PS: job JSON (terminal)
   MA->>User: present partition_report.markdown
 ```
 
@@ -262,7 +263,7 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 |------|---------|---------|
 | `master/config/partitions.conf` | `test cn[1-10]` | Logical partition → nodeset (SoT; deployed to gateway) |
 | `master/config/slaves.conf` | `cn1 test cn[1-10]` | Gateway registry (Master only) |
-| `master/config/master.conf` | `default_gateway cn1` | Master defaults, poll backoff |
+| `master/config/master.conf` | `default_gateway cn1` | Master defaults, `default_deadline` / `wait_slack` |
 | `slave/config/slave.conf` | `agent_opencode_bin opencode` | Exclusion policy + agent CLI |
 
 ```bash

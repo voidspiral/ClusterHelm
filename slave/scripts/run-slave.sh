@@ -2,7 +2,7 @@
 # Slave-side: submit / poll / background execute partition jobs.
 set -euo pipefail
 
-JOB_DIR="${AGENT_JOB_DIR:-/home/smt/agents/var/agent-jobs}"
+JOB_DIR="${AGENT_JOB_DIR:-$(cd "$(dirname "$0")/.." && pwd)/var/agent-jobs}"
 NODE_SSH_TIMEOUT="${AGENT_NODE_SSH_TIMEOUT:-10}"
 
 usage() {
@@ -169,6 +169,7 @@ cmd_worker() {
   local script_dir preflight_dir
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   preflight_dir="$script_dir/preflight"
+  trap "python3 '$script_dir/job_complete.py' fail-signal '$JOB_DIR' '$job_id'" EXIT
   python3 - "$JOB_DIR" "$job_id" "$NODE_SSH_TIMEOUT" "$script_dir" "$preflight_dir" <<'PY'
 import json, re, socket, subprocess, sys
 from datetime import datetime, timezone
@@ -178,8 +179,10 @@ job_dir, job_id, ssh_timeout, script_dir, preflight_dir = (
     sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
 )
 sys.path.insert(0, preflight_dir)
+sys.path.insert(0, script_dir)
 from job_preflight import run_preflight
 from node_exclude import NodeExclusionStore
+from job_complete import remaining_seconds, write_done
 path = f"{job_dir}/{job_id}.json"
 _local = socket.gethostname().split(".")[0].lower()
 
@@ -298,7 +301,7 @@ data["status"] = "running"
 data["phase"] = "exec"
 exec_ok = exec_fail = 0
 deadline_at = datetime.fromisoformat(data["deadline_at"].replace("Z", "+00:00"))
-exec_timeout = max(120, int((deadline_at - datetime.now(timezone.utc)).total_seconds()))
+exec_timeout = remaining_seconds(deadline_at)
 save(data)
 for host in hosts:
     nstate = data["nodes"].get(host, {}).get("state")
@@ -435,6 +438,7 @@ data["partition_report"] = {
 if data.get("nodestatus_snapshot"):
     data["partition_report"].update(data["nodestatus_snapshot"])
 save(data)
+write_done(job_dir, job_id, status)
 PY
 }
 
@@ -479,15 +483,7 @@ with open(path, "w") as f:
 PY
 
   local timeout_sec
-  timeout_sec=$(python3 - "$path" <<'PY'
-import json, sys
-from datetime import datetime, timezone
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-deadline = datetime.fromisoformat(data["deadline_at"].replace("Z", "+00:00"))
-print(max(120, int((deadline - datetime.now(timezone.utc)).total_seconds())))
-PY
-)
+  timeout_sec=$(python3 "$script_dir/job_complete.py" remaining "$path")
 
   local prompt rc=0
   prompt="$(cat "$prompt_file")"
@@ -506,84 +502,28 @@ PY
     export MPIRUN="$mpi_mpirun"
   fi
 
+  trap "python3 '$script_dir/job_complete.py' fail-signal '$JOB_DIR' '$job_id'" EXIT
+
   if [[ "$runtime" == "opencode" && -n "$opencode_bin" ]]; then
-    (cd "$project_root" && timeout "$timeout_sec" "$opencode_bin" run --agent "$opencode_agent" "$prompt") \
-      > "$agent_log" 2>&1 || rc=$?
+    (
+      cd "$project_root"
+      exec setsid timeout "$timeout_sec" "$opencode_bin" run --agent "$opencode_agent" --auto "$prompt"
+    ) > "$agent_log" 2>&1 &
+    local oc_pid=$!
+    python3 "$script_dir/job_complete.py" supervise "$path" "$agent_log" "$oc_pid" "$timeout_sec" "$runtime" || true
+    wait "$oc_pid" 2>/dev/null || true
   else
     echo "ERROR: no agent CLI available (runtime=$runtime)" > "$agent_log"
-    rc=127
+    python3 "$script_dir/job_complete.py" finalize "$path" "$agent_log" 127 "$runtime"
   fi
-
-  # Finalize: honor JSON if the agent already wrote a terminal partition_report;
-  # otherwise parse the report contract from the CLI output.
-  python3 - "$path" "$agent_log" "$rc" "$runtime" <<'PY'
-import json, re, socket, sys
-from datetime import datetime, timezone
-path, log_path, rc, runtime = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
-with open(path) as f:
-    data = json.load(f)
-if data.get("status") in ("done", "partial", "failed") and data.get("partition_report"):
-    if data.get("nodestatus_snapshot"):
-        for key, value in data["nodestatus_snapshot"].items():
-            data["partition_report"].setdefault(key, value)
-        data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
-    sys.exit(0)
-try:
-    log = open(log_path, errors="replace").read()
-except OSError:
-    log = ""
-
-md_match = re.search(
-    r"===PARTITION_REPORT_BEGIN===\s*\n(.*?)\n?\s*===PARTITION_REPORT_END===",
-    log, re.DOTALL)
-status_match = None
-for m in re.finditer(r"AGENT_STATUS:\s*(done|partial|failed)", log):
-    status_match = m.group(1)
-
-if md_match:
-    markdown = md_match.group(1).strip()
-    status = status_match or ("done" if rc == 0 else "failed")
-else:
-    status = "failed"
-    reason = "deadline exceeded (timeout)" if rc == 124 else f"exit {rc}, report contract missing"
-    tail = log.strip()[-2000:] or "no output"
-    markdown = (
-        f"# Agent job failed: {data.get('partition', '?')}\n\n"
-        f"- Runtime: {runtime}\n- Reason: {reason}\n\n"
-        f"## Agent output (tail)\n```\n{tail}\n```"
-    )
-
-summary = f"agent {status} (runtime={runtime}, exit={rc})"
-data["status"] = status
-data["phase"] = "done"
-data["summary"] = summary
-data["partition_report"] = {
-    "task_title": data.get("task_title"),
-    "gateway": socket.gethostname().split(".")[0],
-    "partition": data.get("partition"),
-    "partition_nodeset": data.get("partition_nodeset"),
-    "status": status,
-    "mode": "agent",
-    "runtime": runtime,
-    "summary_line": summary,
-    "markdown": markdown,
-}
-if data.get("nodestatus_snapshot"):
-    data["partition_report"].update(data["nodestatus_snapshot"])
-data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-PY
 }
 
 cmd_wait() {
-  local job_id="" timeout=600
+  local job_id="" timeout="" timeout_set=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --job-id) job_id="$2"; shift 2 ;;
-      --timeout) timeout="$2"; shift 2 ;;
+      --timeout) timeout="$2"; timeout_set=1; shift 2 ;;
       -h|--help) usage ;;
       *) shift ;;
     esac
@@ -591,22 +531,61 @@ cmd_wait() {
   [[ -n "$job_id" ]] || usage
 
   local f="$JOB_DIR/${job_id}.json"
-  local deadline=$(( $(date +%s) + timeout ))
-  local backoff=5
+  local donef="$JOB_DIR/${job_id}.done"
 
-  while [[ $(date +%s) -lt $deadline ]]; do
+  if [[ "$timeout_set" -eq 0 ]]; then
     if [[ -f "$f" ]]; then
-      local status
-      status=$(python3 -c "import json; print(json.load(open('$f')).get('status','?'))" 2>/dev/null || echo "?")
-      if [[ "$status" =~ ^(done|partial|failed)$ ]]; then
-        cat "$f"
-        exit 0
-      fi
+      timeout=$(python3 - "$f" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+deadline = datetime.fromisoformat(data["deadline_at"].replace("Z", "+00:00"))
+remaining = int((deadline - datetime.now(timezone.utc)).total_seconds())
+print(max(1, remaining + 30))
+PY
+)
+    else
+      timeout=1830
     fi
-    sleep "$backoff"
-    # progressive backoff: 5→10→15→20→25→30 (capped)
-    backoff=$(( backoff < 30 ? backoff + 5 : 30 ))
+  fi
+
+  job_terminal() {
+    [[ -f "$f" ]] || return 1
+    local status
+    status=$(python3 -c "import json; print(json.load(open('$f')).get('status','?'))" 2>/dev/null || echo "?")
+    [[ "$status" =~ ^(done|partial|failed)$ ]]
+  }
+
+  emit_json() {
+    cat "$f"
+    exit 0
+  }
+
+  local deadline=$(( $(date +%s) + timeout ))
+  while [[ $(date +%s) -lt $deadline ]]; do
+    if [[ -f "$donef" ]] && [[ -f "$f" ]]; then
+      emit_json
+    fi
+    if job_terminal; then
+      emit_json
+    fi
+    local slice=$(( deadline - $(date +%s) ))
+    [[ "$slice" -gt 0 ]] || break
+    if [[ "$slice" -gt 1 ]]; then
+      slice=1
+    fi
+    if command -v inotifywait >/dev/null 2>&1; then
+      inotifywait -q -e create,close_write,moved_to -t "$slice" "$JOB_DIR" >/dev/null 2>&1 || true
+    else
+      local nap=1
+      [[ "$slice" -lt 1 ]] && nap="$slice"
+      sleep "$nap"
+    fi
   done
+  if [[ -f "$f" ]] && job_terminal; then
+    emit_json
+  fi
   echo "{\"error\":\"wait timeout\",\"job_id\":\"$job_id\"}" >&2
   exit 1
 }

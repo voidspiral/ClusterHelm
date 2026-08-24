@@ -13,7 +13,8 @@ fi
 CONFIG="$MASTER_ROOT/config/master.conf"
 GATEWAY=""
 JOB_ID=""
-TIMEOUT=600
+TIMEOUT=""
+TIMEOUT_SET=0
 
 read_master_default() {
   local key="$1" fallback="$2"
@@ -34,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --gateway) GATEWAY="$2"; shift 2 ;;
     --job-id) JOB_ID="$2"; shift 2 ;;
-    --timeout) TIMEOUT="$2"; shift 2 ;;
+    --timeout) TIMEOUT="$2"; TIMEOUT_SET=1; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown arg: $1" >&2; usage ;;
   esac
@@ -43,12 +44,21 @@ done
 [[ -n "$JOB_ID" ]] || usage
 
 GATEWAY="${GATEWAY:-$(read_master_default default_gateway cn1)}"
-POLL_TIMEOUT="$(read_master_default poll_timeout 15)"
+DEFAULT_DEADLINE="$(read_master_default default_deadline 1800)"
+WAIT_SLACK="$(read_master_default wait_slack 30)"
+if [[ "$TIMEOUT_SET" -eq 0 ]]; then
+  TIMEOUT=$((DEFAULT_DEADLINE + WAIT_SLACK))
+fi
 REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
 REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/run-slave.sh"
+SSH_ALIVE="$(read_master_default ssh_server_alive_interval 30)"
+SSH_ALIVE_MAX="$(read_master_default ssh_server_alive_count_max 3)"
 
-# Single SSH call: gateway blocks until terminal
-out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" -o BatchMode=yes "$GATEWAY" \
+# Single SSH call: gateway blocks until completion signal (or safety timeout)
+out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" \
+  -o ServerAliveInterval="$SSH_ALIVE" \
+  -o ServerAliveCountMax="$SSH_ALIVE_MAX" \
+  -o BatchMode=yes "$GATEWAY" \
   "bash '$REMOTE_SCRIPT' wait --job-id $(printf %q "$JOB_ID") --timeout $TIMEOUT" 2>&1) || {
   echo "ERROR: wait on $GATEWAY failed: $out" >&2
   exit 1
