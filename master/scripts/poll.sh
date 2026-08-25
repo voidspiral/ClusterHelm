@@ -36,8 +36,10 @@ done
 
 GATEWAY="${GATEWAY:-$(read_master_default default_gateway cn1)}"
 POLL_TIMEOUT="$(read_master_default poll_timeout 15)"
-REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
-REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/run-slave.sh"
+REMOTE_PROJECT="$(read_master_default remote_project "")"
+[[ -n "$REMOTE_PROJECT" ]] || { echo "ERROR: set remote_project in $CONFIG" >&2; exit 1; }
+REMOTE_RUN_SLAVE="$(read_master_default remote_run_slave scripts/run-slave.sh)"
+REMOTE_SCRIPT="${REMOTE_PROJECT}/${REMOTE_RUN_SLAVE}"
 
 out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" -o BatchMode=yes "$GATEWAY" \
   "timeout $POLL_TIMEOUT bash '$REMOTE_SCRIPT' poll --job-id $(printf %q "$JOB_ID")" 2>&1) || {

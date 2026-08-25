@@ -41,7 +41,7 @@ while binary, socket, timeout, and daemon rendering values live in
 Create `slave/.opencode/skills/nodestatus/` with `SKILL.md`, `SKILL.zh.md`,
 `reference.md`, and `README.zh.md`, following add-tools2 conventions.
 
-The Slave runtime loads OpenCode assets from `/home/smt/agents/.opencode`.
+The Slave runtime loads OpenCode assets from `$remote_project/.opencode` (`remote_project` in `master.conf`).
 Creating an additional `.cursor/skills` copy would introduce an undeployed,
 unconsumed mirror that could drift. The add-tools2 specification is therefore
 used as the generation contract rather than copied into a second runtime.

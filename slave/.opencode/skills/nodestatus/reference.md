@@ -11,7 +11,7 @@ All interactive Slave commands use the gateway-local Unix socket:
 ```
 
 Runtime values must be read from
-`/home/smt/agents/config/slave.conf`; the paths above are defaults, not a
+`config/slave.conf`; the paths above are defaults, not a
 second configuration source.
 
 ## Summary output
@@ -140,9 +140,9 @@ the daemon schema but is not deployed as an independent source of truth.
 | `nodeset` | `master/config/slaves.conf`; `partitions.conf` remains logical mapping SoT |
 | `listen` | `slave.conf:nodestatus_listen` |
 | `socket_path` | `slave.conf:nodestatus_unix_socket` |
-| `store_path` | `/home/smt/agents/var/agent-jobs/node-status.json` |
-| `exclusion_store_path` | `/home/smt/agents/var/agent-jobs/node-status-exclusions.json` |
-| `legacy_exclusion_path` | `/home/smt/agents/var/agent-jobs/node-exclusions.json` |
+| `store_path` | `var/agent-jobs/node-status.json` |
+| `exclusion_store_path` | `var/agent-jobs/node-status-exclusions.json` |
+| `legacy_exclusion_path` | `var/agent-jobs/node-exclusions.json` |
 | `freshness` | `slave.conf:nodestatus_freshness` |
 | `heartbeat_timeout` | `slave.conf:nodestatus_heartbeat_timeout` |
 | `auth_key_file` | `/etc/nodestatus/partition.key`, supplied from deployment input |
@@ -184,9 +184,9 @@ Slave interactive runtime keys:
 
 | Artifact | Project path | Deployed path |
 |----------|--------------|---------------|
-| Skill | `slave/.opencode/skills/nodestatus/` | `/home/smt/agents/.opencode/skills/nodestatus/` |
-| Slave config | `slave/config/slave.conf` | `/home/smt/agents/config/slave.conf` |
-| Partition SoT | `master/config/partitions.conf` | `/home/smt/agents/config/partitions.conf` |
-| Query client | `slave/scripts/preflight/nodestatus_client.py` | `/home/smt/agents/scripts/preflight/nodestatus_client.py` |
-| Exclusion bridge | `slave/scripts/preflight/node_exclude.py` | `/home/smt/agents/scripts/preflight/node_exclude.py` |
+| Skill | `slave/.opencode/skills/nodestatus/` | `.opencode/skills/nodestatus/` |
+| Slave config | `slave/config/slave.conf` | `config/slave.conf` |
+| Partition SoT | `master/config/partitions.conf` | `config/partitions.conf` |
+| Query client | `slave/scripts/preflight/nodestatus_client.py` | `scripts/preflight/nodestatus_client.py` |
+| Exclusion bridge | `slave/scripts/preflight/node_exclude.py` | `scripts/preflight/node_exclude.py` |
 | Gateway config schema | `/home/code/nodestat/config/gateway.conf.example` | generated at deployment |

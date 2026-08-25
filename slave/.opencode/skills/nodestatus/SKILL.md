@@ -13,7 +13,7 @@ metadata:
 # nodestatus (Slave gateway)
 
 This skill is deployed only to the Slave gateway by `deploy-slave.sh`, under
-`/home/smt/agents/.opencode/skills/nodestatus/`. Master does not load it.
+`.opencode/skills/nodestatus/`. Master does not load it.
 
 `nodestatus` is a partition-local daemon query, not a distributed job. Use the
 CLI directly on the gateway; do not wrap it in `workflow_runner.py`.
@@ -32,8 +32,8 @@ The deployed Slave configuration is authoritative. Load the binary, Unix
 socket, and timeout from it before running commands:
 
 ```bash
-CONF=/home/smt/agents/config/slave.conf
-PARTITIONS=/home/smt/agents/config/partitions.conf
+CONF=config/slave.conf
+PARTITIONS=config/partitions.conf
 NODESTATUS_BIN="$(awk '$1=="nodestatus_bin"{print $2; exit}' "$CONF")"
 NODESTATUS_SOCKET="$(awk '$1=="nodestatus_unix_socket"{print $2; exit}' "$CONF")"
 NODESTATUS_TIMEOUT="$(awk '$1=="nodestatus_query_timeout"{print $2; exit}' "$CONF")"
@@ -136,7 +136,7 @@ the partition total.
 ## Job flow
 
 1. Read the partition from job/request context and confirm it in
-   `/home/smt/agents/config/partitions.conf`.
+   `config/partitions.conf`.
 2. Load runtime values from `slave.conf`.
 3. Use `summary` for aggregate questions and `list` for node-level questions.
 4. Use `probe` only when current evidence is stale/unknown or explicitly requested.

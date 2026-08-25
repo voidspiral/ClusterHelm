@@ -49,8 +49,10 @@ WAIT_SLACK="$(read_master_default wait_slack 30)"
 if [[ "$TIMEOUT_SET" -eq 0 ]]; then
   TIMEOUT=$((DEFAULT_DEADLINE + WAIT_SLACK))
 fi
-REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
-REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/run-slave.sh"
+REMOTE_PROJECT="$(read_master_default remote_project "")"
+[[ -n "$REMOTE_PROJECT" ]] || { echo "ERROR: set remote_project in $CONFIG" >&2; exit 1; }
+REMOTE_RUN_SLAVE="$(read_master_default remote_run_slave scripts/run-slave.sh)"
+REMOTE_SCRIPT="${REMOTE_PROJECT}/${REMOTE_RUN_SLAVE}"
 SSH_ALIVE="$(read_master_default ssh_server_alive_interval 30)"
 SSH_ALIVE_MAX="$(read_master_default ssh_server_alive_count_max 3)"
 

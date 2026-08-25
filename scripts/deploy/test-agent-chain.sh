@@ -5,9 +5,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MASTER_SCRIPTS="$ROOT/master/scripts"
+MASTER_CONF="$ROOT/master/config/master.conf"
 JOBS_DIR="$MASTER_SCRIPTS"
 GATEWAY="${GATEWAY:-cn1}"
-REMOTE_PROJECT="/home/smt/agents"
+REMOTE_PROJECT="$(
+  awk '{ sub(/\r$/, "") } $1 == "remote_project" { print $2; exit }' "$MASTER_CONF" 2>/dev/null || true
+)"
+[[ -n "$REMOTE_PROJECT" ]] || {
+  echo "ERROR: set remote_project in $MASTER_CONF" >&2
+  exit 1
+}
 LOG_DIR="${LOG_DIR:-$ROOT/var/agent-jobs/test-chain}"
 mkdir -p "$LOG_DIR"
 
@@ -184,7 +191,7 @@ else
       fail "agent-mode partition_report assertion: $(cat "$LOG_DIR/a2a.assert.log")"
     fi
   else
-    fail "agent-mode job status=$A2A_STATUS (gateway log: /home/smt/agents/var/agent-jobs/${A2A_JOB}.agent.log)"
+    fail "agent-mode job status=$A2A_STATUS (gateway log: $REMOTE_PROJECT/var/agent-jobs/${A2A_JOB}.agent.log)"
   fi
 fi
 
@@ -215,7 +222,7 @@ else
   fail "Master OpenCode run failed (see $OC_LOG)"
 fi
 
-SLAVE_MEM_PROMPT='检查本机内存。加载 memory-monitor skill，运行 /home/smt/agents/scripts/monitor/mem-api.sh local，输出 JSON 并简要说明 mem_used_pct。禁止 ssh 到其他节点跑 free。'
+SLAVE_MEM_PROMPT='检查本机内存。加载 memory-monitor skill，运行 scripts/monitor/mem-api.sh local，输出 JSON 并简要说明 mem_used_pct。禁止 ssh 到其他节点跑 free。'
 
 # --- 3.3 Slave OpenCode + skill ---
 run_section "Slave OpenCode + memory-monitor skill (cn1)"
@@ -233,7 +240,7 @@ fi
 # --- Optional: Slave OpenCode run-slave hostname ---
 run_section "Slave OpenCode run-slave hostname (cn1)"
 SRH_LOG="$LOG_DIR/slave-opencode-hostname.log"
-SRH_PROMPT='对 test 分区执行 hostname -s。使用 /home/smt/agents/scripts/run-slave.sh submit --partition test 提交，poll 至终态，呈现 partition_report。'
+SRH_PROMPT='对 test 分区执行 hostname -s。使用 scripts/run-slave.sh submit --partition test 提交，poll 至终态，呈现 partition_report。'
 if ssh -o ConnectTimeout=15 "$GATEWAY" "cd $REMOTE_PROJECT && opencode run --agent slave-agent --auto $(printf %q "$SRH_PROMPT")" > "$SRH_LOG" 2>&1; then
   if grep -qE 'partition_report|Partition report|hostname' "$SRH_LOG"; then
     pass "Slave OpenCode run-slave hostname (output contains report markers)"

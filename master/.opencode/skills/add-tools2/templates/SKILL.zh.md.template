@@ -6,7 +6,7 @@ description: >-
 
 # {{TITLE_ZH}}
 
-本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/smt/agents/.opencode/skills/{{SKILL_NAME}}/`。  
+本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `$remote_project/.opencode/skills/{{SKILL_NAME}}/`（`remote_project` 见 `master.conf`）。  
 工具 CLI 由 **`{{DEPLOY_SCRIPT}}`** 单独部署（若无独立部署脚本则删除本句）。  
 **Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll-wait.sh` 委托 Slave 执行。
 

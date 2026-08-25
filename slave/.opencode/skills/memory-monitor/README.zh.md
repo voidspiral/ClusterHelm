@@ -7,13 +7,13 @@
 
 ```bash
 # 本机（网关 cn1）
-/home/smt/agents/scripts/monitor/mem-api.sh local
+scripts/monitor/mem-api.sh local
 
 # 整个 test 分区
-/home/smt/agents/scripts/monitor/mem-api.sh partition test
+scripts/monitor/mem-api.sh partition test
 
 # 子集
-/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 - **部署**：Skill → `deploy-slave.sh`；mem-api → `deploy-monitor.sh`（可选）

@@ -12,7 +12,7 @@ metadata:
 # nodestatus（Slave 网关）
 
 本 Skill 仅通过 `deploy-slave.sh` 部署到 Slave 网关的
-`/home/smt/agents/.opencode/skills/nodestatus/`。Master 不加载本 Skill。
+`.opencode/skills/nodestatus/`。Master 不加载本 Skill。
 
 `nodestatus` 是分区本地守护进程查询，不是分布式作业。应直接在网关调用
 CLI，不要包装为 `workflow_runner.py` 作业。
@@ -32,9 +32,9 @@ Master 不应 SSH 扇出到计算节点，也不应自行拼装各节点状态�
 
 | 项目位置 | 部署后位置 | 配置来源 |
 |----------|------------|----------|
-| `slave/.opencode/skills/nodestatus/` | `/home/smt/agents/.opencode/skills/nodestatus/` | `deploy-slave.sh` |
-| `slave/config/slave.conf` | `/home/smt/agents/config/slave.conf` | ClusterHelm |
-| `master/config/partitions.conf` | `/home/smt/agents/config/partitions.conf` | Master SoT |
+| `slave/.opencode/skills/nodestatus/` | `.opencode/skills/nodestatus/` | `deploy-slave.sh` |
+| `slave/config/slave.conf` | `config/slave.conf` | ClusterHelm |
+| `master/config/partitions.conf` | `config/partitions.conf` | Master SoT |
 | nodestatus 二进制 | `/usr/local/bin/nodestatus`（默认） | `nodestatus_bin` |
 
 部署由项目现有脚本负责；本 Skill 不复制或生成第二份 gateway 配置。
@@ -52,8 +52,8 @@ Master 不应 SSH 扇出到计算节点，也不应自行拼装各节点状态�
 运行命令前，从已部署 Slave 配置读取二进制、Unix socket 和超时：
 
 ```bash
-CONF=/home/smt/agents/config/slave.conf
-PARTITIONS=/home/smt/agents/config/partitions.conf
+CONF=config/slave.conf
+PARTITIONS=config/partitions.conf
 NODESTATUS_BIN="$(awk '$1=="nodestatus_bin"{print $2; exit}' "$CONF")"
 NODESTATUS_SOCKET="$(awk '$1=="nodestatus_unix_socket"{print $2; exit}' "$CONF")"
 NODESTATUS_TIMEOUT="$(awk '$1=="nodestatus_query_timeout"{print $2; exit}' "$CONF")"
@@ -185,10 +185,10 @@ ping/SSH 和 legacy 排除投影回退；不要自行编写 SSH 循环重做回�
 | 文件 | 说明 |
 |------|------|
 | `/usr/local/bin/nodestatus` | Slave 运行时 CLI 默认路径 |
-| `/home/smt/agents/config/slave.conf` | nodestatus 运行时配置 |
-| `/home/smt/agents/config/partitions.conf` | 分区与 nodeset SoT |
-| `/home/smt/agents/scripts/preflight/nodestatus_client.py` | preflight 查询/probe 客户端 |
-| `/home/smt/agents/scripts/preflight/node_exclude.py` | daemon-first 排除兼容层 |
+| `config/slave.conf` | nodestatus 运行时配置 |
+| `config/partitions.conf` | 分区与 nodeset SoT |
+| `scripts/preflight/nodestatus_client.py` | preflight 查询/probe 客户端 |
+| `scripts/preflight/node_exclude.py` | daemon-first 排除兼容层 |
 | `.opencode/skills/nodestatus/SKILL.md` | 英文 Skill |
 
 字段与配置详解：[reference.md](reference.md)

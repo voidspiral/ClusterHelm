@@ -35,9 +35,9 @@
 ## Slave 命令（网关上执行）
 
 ```bash
-/home/smt/agents/scripts/monitor/mem-api.sh local
-/home/smt/agents/scripts/monitor/mem-api.sh partition test
-/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+scripts/monitor/mem-api.sh local
+scripts/monitor/mem-api.sh partition test
+scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 `mem-api.sh partition` 内部以 `memmon.py --remote-cmd` 内联执行，cn2–cn10 无需部署文件（模拟阶段）。上述命令是底层实现和操作员入口；Slave agent 的正常路径使用一次 `workflow_runner.py run memory-monitor`。

@@ -11,7 +11,7 @@ from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
 _CANDIDATES = [
-    DIR.parent / "config" / "partitions.conf",  # slave/config or /home/smt/agents/config
+    DIR.parent / "config" / "partitions.conf",  # slave/config or $remote_project/config
     DIR.parents[1] / "master" / "config" / "partitions.conf",  # monorepo
 ]
 

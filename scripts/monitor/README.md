@@ -19,7 +19,7 @@
 | `memmon.py`, `mem-api.sh` | `deploy-monitor.sh` | **not deployed** |
 | Partition memory collect | via `mem-api.sh` / nested job `--command` | inline via `--remote-cmd` |
 
-The test partition worker SSHs the job `--command` to every reachable node — a path like `python3 /home/smt/agents/.../memmon.py` **fails on cn2–cn10** unless those nodes have the file.
+The test partition worker SSHs the job `--command` to every reachable node — a path like `python3 $remote_project/.../memmon.py` **fails on cn2–cn10** unless those nodes have the file.
 
 ## Simulation (current)
 

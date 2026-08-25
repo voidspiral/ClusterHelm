@@ -48,7 +48,7 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 |------|---------|
 | `config/partitions.conf` | Logical partition → nodeset (`test` → `cn[1-10]`) |
 | `config/slaves.conf` | Gateway registry (`cn1` owns `test`) |
-| `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, timeouts, poll backoff |
+| `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, `remote_project` (gateway deploy root), timeouts |
 | `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`) |
 | `scripts/poll-wait.sh` | Master → gateway **blocking** poll (single SSH, returns at terminal). Writes `var/agent-jobs/<id>.last.json`. |
 

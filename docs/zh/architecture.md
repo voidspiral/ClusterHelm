@@ -40,7 +40,7 @@ flowchart TB
     direction TB
     RS[run-slave.sh]
     SC[slave.conf<br/>agent_opencode_bin]
-    SJ[/home/smt/agents/var/agent-jobs/job-*.json/]
+    SJ[$remote_project/var/agent-jobs/job-*.json/]
     SA["Slave Agent LLM<br/>OpenCode: slave-agent"]
     WR["workflow_runner.py<br/>单次聚合调用"]
     WK["_worker<br/>确定性脚本 worker"]
@@ -94,7 +94,7 @@ flowchart LR
 **Job JSON** 是 Master 与网关之间的契约：
 
 ```
-submit.sh     ──SSH──►  run-slave.sh submit  ──►  /home/smt/agents/var/agent-jobs/<job_id>.json
+submit.sh     ──SSH──►  run-slave.sh submit  ──►  $remote_project/var/agent-jobs/<job_id>.json
 poll-wait.sh  ──SSH──►  run-slave.sh wait    ◄──  JSON（阻塞至终态后返回，无需多次轮询）
 ```
 
@@ -122,7 +122,7 @@ flowchart LR
   subgraph Cn1["Slave 网关 cn1"]
     SOC[slave-agent.md]
     RJ[run-slave.sh / slave.conf]
-    JD[/home/smt/agents/var/agent-jobs/]
+    JD[$remote_project/var/agent-jobs/]
   end
 
   DA --> DM
@@ -239,7 +239,7 @@ opencode.json (master-agent)
 master/config/{master,partitions,slaves}.conf
 master/scripts/{submit,poll,poll-wait,list-slaves}
 
-slave/              →   经 deploy-slave.sh 部署为扁平 /home/smt/agents/
+slave/              →   经 deploy-slave.sh 部署为扁平 $remote_project/
   .opencode/        →   .opencode/
   opencode.json     →   opencode.json
   config/slave.conf →   config/slave.conf
@@ -251,7 +251,7 @@ slave/              →   经 deploy-slave.sh 部署为扁平 /home/smt/agents/
 master/scripts/submit.sh      SSH →    （仅 Master）
 master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait（阻塞至终态）
                                      scripts/run-slave.sh submit / _worker / _agent_worker
-var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.json
+var/agent-jobs/*.last.json  ←──      $remote_project/var/agent-jobs/*.json
 ```
 
 ---
@@ -262,7 +262,7 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 |------|------|------|
 | `master/config/partitions.conf` | `test cn[1-10]` | 逻辑分区 → 节点集（SoT；部署到网关） |
 | `master/config/slaves.conf` | `cn1 test cn[1-10]` | 网关注册表（仅 Master） |
-| `master/config/master.conf` | `default_gateway cn1` | Master 默认与轮询策略 |
+| `master/config/master.conf` | `remote_project /home/cn1/agents` | Master 默认、超时、网关部署根 |
 | `slave/config/slave.conf` | `agent_opencode_bin opencode` | 排除策略 + agent CLI |
 
 ```bash

@@ -8,7 +8,6 @@ permission:
   external_directory:
     "/proc/**": allow  
     "/tmp/**": allow  
-    "/home/smt/**": allow  
     "/etc/**": allow  
   skill:
     memory-monitor: allow
@@ -42,8 +41,10 @@ Implications:
 | `config/partitions.conf` | Logical partition → nodeset (deployed from Master SoT) |
 | `config/slave.conf` | Exclusion policy, agent CLI, MPI paths |
 
+Working directory is the gateway project root (`remote_project` in Master's `master.conf`). Use relative paths (`config/`, `scripts/`).
+
 ```bash
-cat /home/smt/agents/config/partitions.conf
+cat config/partitions.conf
 ```
 
 ## Mandatory workflow state machine
@@ -82,7 +83,7 @@ that the skill was used.
 One-call happy-path command:
 
 ```bash
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py run <workflow-id> \
+python3 scripts/workflows/workflow_runner.py run <workflow-id> \
   --partition <partition> [--arg key=value] --timeout <remaining-seconds>
 ```
 
@@ -129,8 +130,8 @@ nodestatus daemon. `$AGENT_JOB_DIR/node-exclusions.json` remains the rollback
 projection. Use the compatibility CLI for routine operations:
 
 ```bash
-python3 /home/smt/agents/scripts/preflight/node_exclude.py list --partition test
-python3 /home/smt/agents/scripts/preflight/node_exclude.py clear --partition test --host cn5
+python3 scripts/preflight/node_exclude.py list --partition test
+python3 scripts/preflight/node_exclude.py clear --partition test --host cn5
 ```
 
 When a user explicitly asks for direct status management, load the
@@ -199,10 +200,10 @@ The wrapper parses these markers into `partition_report` in the job JSON — Mas
 ## Entrypoints
 
 ```bash
-/home/smt/agents/scripts/run-slave.sh submit --partition test --command '<cmd>'    # script mode
-/home/smt/agents/scripts/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
-/home/smt/agents/scripts/run-slave.sh poll --job-id <job_id>
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py list
+scripts/run-slave.sh submit --partition test --command '<cmd>'    # script mode
+scripts/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
+scripts/run-slave.sh poll --job-id <job_id>
+python3 scripts/workflows/workflow_runner.py list
 ```
 
 ## Skills

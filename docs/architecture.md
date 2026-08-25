@@ -40,7 +40,7 @@ flowchart TB
     direction TB
     RS[run-slave.sh]
     SC[slave.conf<br/>agent_opencode_bin]
-    SJ[/home/smt/agents/var/agent-jobs/job-*.json/]
+    SJ[$remote_project/var/agent-jobs/job-*.json/]
     SA["Slave Agent LLM<br/>OpenCode: slave-agent"]
     WR["workflow_runner.py<br/>single aggregated call"]
     WK["_worker<br/>deterministic script worker"]
@@ -94,7 +94,7 @@ flowchart LR
 **Job JSON** is the contract between Master and gateway:
 
 ```
-submit.sh     ──SSH──►  run-slave.sh submit  ──►  /home/smt/agents/var/agent-jobs/<job_id>.json
+submit.sh     ──SSH──►  run-slave.sh submit  ──►  $remote_project/var/agent-jobs/<job_id>.json
 poll-wait.sh  ──SSH──►  run-slave.sh wait    ◄──  JSON (blocks on completion signal, then returns)
 ```
 
@@ -122,7 +122,7 @@ flowchart LR
   subgraph Cn1["Slave gateway cn1"]
     SOC[slave-agent.md]
     RJ[run-slave.sh / slave.conf]
-    JD[/home/smt/agents/var/agent-jobs/]
+    JD[$remote_project/var/agent-jobs/]
   end
 
   DA --> DM
@@ -240,7 +240,7 @@ opencode.json (master-agent)
 master/config/{master,partitions,slaves}.conf
 master/scripts/{submit,poll,poll-wait,list-slaves}
 
-slave/              →   deployed flat to /home/smt/agents/ via deploy-slave.sh
+slave/              →   deployed flat to $remote_project/ via deploy-slave.sh
   .opencode/        →   .opencode/
   opencode.json     →   opencode.json
   config/slave.conf →   config/slave.conf
@@ -252,7 +252,7 @@ slave/              →   deployed flat to /home/smt/agents/ via deploy-slave.sh
 master/scripts/submit.sh      SSH →    (Master only)
 master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait (blocks until terminal)
                                      scripts/run-slave.sh submit / _worker / _agent_worker
-var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.json
+var/agent-jobs/*.last.json  ←──      $remote_project/var/agent-jobs/*.json
 ```
 
 ---
@@ -263,7 +263,7 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 |------|---------|---------|
 | `master/config/partitions.conf` | `test cn[1-10]` | Logical partition → nodeset (SoT; deployed to gateway) |
 | `master/config/slaves.conf` | `cn1 test cn[1-10]` | Gateway registry (Master only) |
-| `master/config/master.conf` | `default_gateway cn1` | Master defaults, `default_deadline` / `wait_slack` |
+| `master/config/master.conf` | `remote_project /home/cn1/agents` | Master defaults, timeouts, gateway deploy root |
 | `slave/config/slave.conf` | `agent_opencode_bin opencode` | Exclusion policy + agent CLI |
 
 ```bash
