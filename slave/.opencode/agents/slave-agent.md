@@ -11,6 +11,7 @@ permission:
     "/etc/**": allow  
   skill:
     memory-monitor: allow
+    mpi-monitor: allow
     nodestatus: allow
 ---
 
@@ -74,6 +75,14 @@ Built-in mapping:
 queries and explicit status mutations run directly against the gateway-local
 Unix socket after loading the `nodestatus` skill; they are not distributed
 jobs and must not be wrapped in `workflow_runner.py`.
+
+`mpi-monitor` is a job-sidecar exception: load the skill and **probe the CLI
+on this gateway first** (PATH, `$remote_project/vendor/mpi-monitor/.venv/bin/mpi-monitor`,
+or `PYTHONPATH` import). If none succeed, mark the job **failed** and **stop**
+— no preflight, wrap, or `pip install`. If the probe succeeds, preflight then
+run **one** `mpi-monitor wrap`. It is not a `workflow_runner.py` id. Do not fan
+out `collect` via `run-slave.sh --command`. Install the Python package on the
+gateway only; remote ranks get an inline SSH payload.
 
 For non-status tasks, deterministic preflight has already used nodestatus.
 Consume `nodestatus_snapshot`, `nodes.*.nodestatus`, `status_source`, and
@@ -211,11 +220,22 @@ python3 scripts/workflows/workflow_runner.py list
 | Skill | When to load | Action |
 |-------|--------------|--------|
 | `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
+| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → **CLI hard gate**; if missing, fail and stop; else preflight then one `mpi-monitor wrap --hosts … --match <rank-binary> -- CMD` |
 | `nodestatus` | User asks about node health, reachability, freshness, exclusions, partition status, targeted probe, exclude, or clear | Load skill → query the gateway-local daemon; mutate one owned host only on explicit request |
 
 After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
 
 **Forbidden for memory checks:** SSH loop over nodes running `free` or ad-hoc awk — always use `mem-api.sh`.
+
+After `mpi-monitor wrap`, synthesize a process-monitor section in
+`partition_report` style from `meta.json` and series/chart counts (see skill
+`mpi-monitor`). Do not dump raw JSONL. If the CLI hard gate failed, report
+`failed` with that reason and do not wrap.
+
+**Forbidden for MPI process monitor:** continue after a missing CLI; omit
+`--hosts`; match `mpirun` instead of the rank binary; `pip install` as job
+recovery or on every compute node; fan-out `collect` via
+`run-slave.sh --command` or `workflow_runner.py`.
 
 After a nodestatus query, synthesize one node-status section in
 `partition_report` style. Do not dump raw JSON without state, freshness,
