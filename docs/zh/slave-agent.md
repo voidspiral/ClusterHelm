@@ -96,6 +96,8 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 
 `run-slave.sh` 会自动生成。交互式使用时你也须先写分区可用性摘要，再附细节。
 
+wrap / workflow 失败时会写 `<job_id>.incident.json`；`supervise` 把它合并进仍在 `running` 的 job JSON（`summary`、`failures[]`、`agent_progress`）。Master 用 `poll.sh` 即可看到，不必等终态契约。首次 incident 后 120s 内若仍无报告契约，wrapper 用 sidecar + log 尾收口为 `failed`。
+
 ## 报告示例
 
 ```markdown

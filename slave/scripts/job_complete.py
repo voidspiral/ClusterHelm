@@ -12,6 +12,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+import incident_io  # noqa: E402
+
 TERMINAL = ("done", "partial", "failed")
 CONTRACT_BEGIN = "===PARTITION_REPORT_BEGIN==="
 CONTRACT_END = "===PARTITION_REPORT_END==="
@@ -87,7 +92,31 @@ def _read_log(log_path: str) -> str:
         return ""
 
 
-def finalize_agent_from_log(job_json: str, log_path: str, rc: int, runtime: str) -> dict:
+def apply_incident_sidecar(job_json: str) -> dict | None:
+    """Merge `<job>.incident.json` into a running job. Does not finalize."""
+    inc_path = incident_io.incident_path_for_job(job_json)
+    incident = incident_io.load_incident(inc_path)
+    if not incident:
+        return None
+    job_path = Path(job_json)
+    with open(job_path) as f:
+        data = json.load(f)
+    if data.get("status") in TERMINAL:
+        return incident
+    incident_io.merge_incident_into_job(data, incident)
+    with open(job_path, "w") as f:
+        json.dump(data, f, indent=2)
+    return incident
+
+
+def finalize_agent_from_log(
+    job_json: str,
+    log_path: str,
+    rc: int,
+    runtime: str,
+    *,
+    fail_reason: str | None = None,
+) -> dict:
     with open(job_json) as f:
         data = json.load(f)
     if data.get("status") in TERMINAL and data.get("partition_report"):
@@ -101,8 +130,12 @@ def finalize_agent_from_log(job_json: str, log_path: str, rc: int, runtime: str)
 
     log = _read_log(log_path)
     parsed = parse_contract(log)
+    incident = incident_io.load_incident(incident_io.incident_path_for_job(job_json))
+    incident_block = incident_io.incident_markdown(incident)
     if parsed:
         status, markdown = parsed
+        if incident_block and "## Incident" not in markdown:
+            markdown = f"{markdown.rstrip()}\n\n{incident_block}\n"
     else:
         md_match = re.search(
             rf"{re.escape(CONTRACT_BEGIN)}\s*\n(.*?)\n?\s*{re.escape(CONTRACT_END)}",
@@ -115,17 +148,21 @@ def finalize_agent_from_log(job_json: str, log_path: str, rc: int, runtime: str)
         if md_match:
             markdown = md_match.group(1).strip()
             status = status_match or ("done" if rc == 0 else "failed")
+            if incident_block and "## Incident" not in markdown:
+                markdown = f"{markdown.rstrip()}\n\n{incident_block}\n"
         else:
             status = "failed"
-            reason = (
+            reason = fail_reason or (
                 "deadline exceeded (timeout)"
                 if rc == 124
                 else f"exit {rc}, report contract missing"
             )
             tail = log.strip()[-2000:] or "no output"
+            extra = f"{incident_block}\n\n" if incident_block else ""
             markdown = (
                 f"# Agent job failed: {data.get('partition', '?')}\n\n"
                 f"- Runtime: {runtime}\n- Reason: {reason}\n\n"
+                f"{extra}"
                 f"## Agent output (tail)\n```\n{tail}\n```"
             )
 
@@ -225,11 +262,15 @@ def supervise_agent(
     timeout_sec: int,
     runtime: str,
     poll_sec: float = 0.2,
+    incident_budget_sec: float | int | None = None,
 ) -> dict:
     job_path = Path(job_json)
     job_id = job_path.stem
     job_dir = job_path.parent
     deadline = time.time() + max(1, int(timeout_sec))
+    budget = incident_io.budget_seconds(incident_budget_sec)
+    incident_seen_at: float | None = None
+    last_incident_mtime: float | None = None
     rc = 0
     while True:
         log = _read_log(log_path)
@@ -249,6 +290,33 @@ def supervise_agent(
             data = finalize_agent_from_log(job_json, log_path, rc=124, runtime=runtime)
             write_done(job_dir, job_id, data["status"])
             return data
+
+        inc_path = incident_io.incident_path_for_job(job_json)
+        if inc_path.is_file():
+            try:
+                mtime = inc_path.stat().st_mtime
+            except OSError:
+                mtime = None
+            if incident_seen_at is None:
+                incident_seen_at = time.time()
+            if mtime is not None and mtime != last_incident_mtime:
+                apply_incident_sidecar(job_json)
+                last_incident_mtime = mtime
+            if (
+                budget > 0
+                and incident_seen_at is not None
+                and (time.time() - incident_seen_at) >= budget
+            ):
+                kill_process_group(pid)
+                data = finalize_agent_from_log(
+                    job_json,
+                    log_path,
+                    rc=1,
+                    runtime=runtime,
+                    fail_reason="incident budget exceeded",
+                )
+                write_done(job_dir, job_id, data["status"])
+                return data
         time.sleep(poll_sec)
 
 

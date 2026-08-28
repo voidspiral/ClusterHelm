@@ -26,3 +26,17 @@ The agent-mode OpenCode invocation MUST include `--auto` so the CLI can exit aft
 #### Scenario: Agent runtime is opencode
 - **WHEN** `_agent_worker` launches the configured OpenCode binary
 - **THEN** the command includes `run --agent <agent> --auto` and the task prompt
+
+### Requirement: Incident sidecar is Master-visible while the agent is running
+On wrap or workflow-runner failure, a sidecar `<job_id>.incident.json` MUST be written (via `CLUSTERHELM_INCIDENT_PATH`). `supervise` MUST merge it into running job JSON (`summary`, `failures[]`, `agent_progress`, `updated_at`) without writing `.done` or killing OpenCode.
+
+#### Scenario: Wrap exits non-zero before the report contract
+- **WHEN** `mpi-monitor wrap` returns a non-zero exit and `CLUSTERHELM_INCIDENT_PATH` is set
+- **THEN** the sidecar exists and a subsequent poll of job JSON includes `summary` and a `failures[]` entry with step, hosts, and exit code while `status` remains `running`
+
+### Requirement: Incident budget finalizes a hung diagnosis
+After the first incident sidecar appears, if no complete report contract is printed within the incident budget (default 120s, `CLUSTERHELM_INCIDENT_BUDGET_SEC`), `supervise` MUST finalize the job as `failed` using the incident record plus agent-log tail, write `.done`, and terminate the OpenCode process group.
+
+#### Scenario: Agent loops after wrap failure
+- **WHEN** an incident sidecar exists and the budget elapses with no `AGENT_STATUS` + `PARTITION_REPORT_*` contract
+- **THEN** the job is `failed`, `partition_report.markdown` includes the incident and log tail, and waiters are released

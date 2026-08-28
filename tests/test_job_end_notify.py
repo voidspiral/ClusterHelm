@@ -188,12 +188,106 @@ class JobCompleteHelperTests(unittest.TestCase):
             if proc.poll() is None:
                 proc.kill()
 
+    def test_supervise_merges_incident_while_still_running(self):
+        job_id = "job-incident-merge"
+        path = write_job(self.job_dir, job_id, "running")
+        log_path = self.job_dir / f"{job_id}.agent.log"
+        log_path.write_text("")
+        merged = {}
+        proc = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        try:
+
+            def _later():
+                time.sleep(0.25)
+                incident = {
+                    "step": "wrap",
+                    "at": "2026-08-25T09:01:00Z",
+                    "hosts": ["cn1", "cn2"],
+                    "exit_code": 255,
+                    "command": ["mpirun", "-np", "2"],
+                    "detail_tail": "hydra proxy failed",
+                    "source": "mpi-monitor",
+                }
+                (self.job_dir / f"{job_id}.incident.json").write_text(
+                    json.dumps(incident)
+                )
+                for _ in range(25):
+                    time.sleep(0.1)
+                    data = json.loads(path.read_text())
+                    if data.get("failures"):
+                        merged.update(data)
+                        break
+                log_path.write_text(CONTRACT)
+
+            threading.Thread(target=_later, daemon=True).start()
+            data = self.jc.supervise_agent(
+                job_json=str(path),
+                log_path=str(log_path),
+                pid=proc.pid,
+                timeout_sec=15,
+                runtime="opencode",
+                incident_budget_sec=0,
+            )
+            self.assertEqual(merged.get("status"), "running")
+            self.assertIn("wrap", merged.get("summary") or "")
+            self.assertEqual(merged["failures"][0]["exit_code"], 255)
+            self.assertEqual(merged["agent_progress"]["step"], "wrap")
+            self.assertEqual(data["status"], "done")
+            self.assertTrue((self.job_dir / f"{job_id}.done").is_file())
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+
+    def test_supervise_finalizes_after_incident_budget(self):
+        job_id = "job-incident-budget"
+        path = write_job(self.job_dir, job_id, "running")
+        log_path = self.job_dir / f"{job_id}.agent.log"
+        log_path.write_text("HYDRA unable to start proxy on cn2\n")
+        (self.job_dir / f"{job_id}.incident.json").write_text(
+            json.dumps(
+                {
+                    "step": "wrap",
+                    "at": "2026-08-25T09:01:00Z",
+                    "hosts": ["cn1", "cn2"],
+                    "exit_code": 255,
+                    "command": ["mpirun", "-np", "2"],
+                    "detail_tail": "hydra proxy failed",
+                    "source": "mpi-monitor",
+                }
+            )
+        )
+        proc = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        try:
+            t0 = time.monotonic()
+            data = self.jc.supervise_agent(
+                job_json=str(path),
+                log_path=str(log_path),
+                pid=proc.pid,
+                timeout_sec=15,
+                runtime="opencode",
+                incident_budget_sec=0.6,
+            )
+            elapsed = time.monotonic() - t0
+            self.assertEqual(data["status"], "failed")
+            markdown = data["partition_report"]["markdown"]
+            self.assertIn("incident budget exceeded", markdown)
+            self.assertIn("hydra proxy failed", markdown)
+            self.assertIn("HYDRA unable to start proxy", markdown)
+            self.assertLess(elapsed, 5)
+            self.assertTrue((self.job_dir / f"{job_id}.done").is_file())
+            self.assertIsNotNone(proc.poll())
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+
 
 class ScriptFlagsTests(unittest.TestCase):
     def test_opencode_invocation_includes_auto(self):
         src = RUN_SLAVE.read_text()
         self.assertIn("--auto", src)
         self.assertRegex(src, r"run --agent .* --auto")
+        self.assertIn("CLUSTERHELM_INCIDENT_PATH", src)
+        self.assertIn("AGENT_JOB_ID", src)
 
     def test_poll_wait_timeout_defaults_follow_deadline_not_poll_timeout(self):
         src = POLL_WAIT.read_text()

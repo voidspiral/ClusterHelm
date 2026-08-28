@@ -122,6 +122,7 @@ if mode == "agent":
 7. Respect exclusions already recorded in job JSON. For explicit status/exclusion requests, follow the loaded `nodestatus` skill; never edit exclusion JSON directly.
 8. MPI environment (from config/slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
 9. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
+10. Wrap / workflow_runner write `{job_dir}/{job_id}.incident.json` on failure (Master can poll it immediately). After the first wrap/workflow exception: at most one targeted retry, then print the report contract and stop. Do not loop unbounded diagnosis (Hydra, SSH, firewall). Missing the contract after an incident lets the wrapper finalize from the sidecar + log tail.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
 AGENT_STATUS: <done|partial|failed>
@@ -466,6 +467,10 @@ cmd_agent_worker() {
   local requested_runtime runtime
   requested_runtime=$(python3 -c "import json; print(json.load(open('$path')).get('runtime') or '')")
   runtime=$(resolve_runtime "$requested_runtime")
+
+  export AGENT_JOB_DIR="$JOB_DIR"
+  export AGENT_JOB_ID="$job_id"
+  export CLUSTERHELM_INCIDENT_PATH="$JOB_DIR/${job_id}.incident.json"
 
   # Mark running before launching the CLI so Master polls see progress.
   python3 - "$path" "$runtime" <<'PY'

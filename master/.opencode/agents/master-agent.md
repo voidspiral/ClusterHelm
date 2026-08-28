@@ -220,6 +220,7 @@ owning Slave agent.
 ## Reporting to user (critical)
 
 - **Primary:** paste or paraphrase `partition_report.markdown` from Slave
+- **In progress:** if `poll.sh` JSON has `summary`, `failures[]`, or `agent_progress`, present those immediately (wrap/workflow incident sidecar). Do not wait for `partition_report`. `poll-wait.sh` still blocks until terminal.
 - **Do not** manually loop `nodes.cn1`, `nodes.cn2`, … to build your own summary — that is Slave's job
 
 | Meta skill | Path | When |

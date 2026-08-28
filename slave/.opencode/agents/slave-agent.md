@@ -35,6 +35,59 @@ Implications:
 - MPI and partition-wide jobs: launch from this gateway when appropriate, but **always allocate slots on cn1** like any other node.
 - Per-node `--command` from the worker runs on cn1 too; use `$(hostname -s)` or local-only branches only when the command must run once cluster-wide (e.g. single `mpirun` launcher).
 
+## MPI launch (MPICH Hydra)
+
+Use `/usr/bin/mpirun` (or `$MPIRUN`). Launch **once from this gateway**.
+`--hosts` / `-hosts` is a comma-separated list: reachable ∩ owned partition ∩
+the task's MPI host list. Do not invent hostnames. `-ppn` is optional.
+
+This partition has **no shared filesystem**. Hydra sends the launcher **cwd**
+to every rank as `-wdir`. Gateway paths such as `$remote_project` (for example
+`/home/cn1/agents`) do not exist on cn2+. Always pass **`-wdir /tmp`** (or
+another directory that exists on every host). Omitting it from the agent cwd
+yields Hydra `assert (!closed)` / exit 255.
+
+```bash
+mpirun -np <nprocs> -ppn <ppn> -hosts <h1>,<h2> -wdir /tmp \
+  <rank-binary>
+```
+
+Hostfile form:
+
+```bash
+printf '%s\n' <h1> <h2> > /tmp/hfile
+mpirun -np <nprocs> -ppn <ppn> -f /tmp/hfile -wdir /tmp \
+  <rank-binary>
+```
+
+Short binaries (sub-second): loop the **same** rank binary so `mpi-monitor`
+can sample. `mpi-monitor wrap --hosts <h1>,<h2> --match <rank-basename> --`
+then the same `mpirun` line (keep `-wdir /tmp`). If `mpirun`/wrap exits 255,
+retry **once** with `-wdir /tmp`; do not loop launcher diagnosis.
+
+## CLI --help
+
+Do **not** run `--help` / `-h` to confirm flags when this file, a loaded
+skill, or the Master prompt already gives the command line.
+
+Hard gates must use PATH, a venv binary, or `import` — never
+`$CLI --help` as a liveness check. For `mpi-monitor`, resolve an **argv
+array** and run `"${argv[@]}" probe` (or vendor `scripts/probe-cli.sh`).
+Never quote a multi-word CLI as one pathname
+(`MPI_MON="env PYTHONPATH=… python3 -m mpi_monitor"; "$MPI_MON"`).
+
+**Allowed --help** only when one of:
+
+- The real command already failed with a usage / unknown-option error
+  (this counts as the single diagnosis; then one retry, then the report).
+- The task explicitly asks for CLI usage.
+- The tool is not documented here or in a loaded skill, so the first
+  invocation cannot be constructed.
+
+**Forbidden before the first real wrap/mpirun:**
+`mpi-monitor --help`, `mpi-monitor wrap --help`, `mpirun --help`,
+`mpiexec --help`, and piping those to `head`.
+
 ## Configuration
 
 | File | Purpose |
@@ -78,9 +131,12 @@ jobs and must not be wrapped in `workflow_runner.py`.
 
 `mpi-monitor` is a job-sidecar exception: load the skill and **probe the CLI
 on this gateway first** (PATH, `$remote_project/vendor/mpi-monitor/.venv/bin/mpi-monitor`,
-or `PYTHONPATH` import). If none succeed, mark the job **failed** and **stop**
+or `PYTHONPATH` import) via an argv array + `"${argv[@]}" probe` (or
+`scripts/probe-cli.sh`). If none succeed, mark the job **failed** and **stop**
 — no preflight, wrap, or `pip install`. If the probe succeeds, preflight then
-run **one** `mpi-monitor wrap`. It is not a `workflow_runner.py` id. Do not fan
+run **one** `"${argv[@]}" wrap`. `--match` is the rank executable (comm/argv0),
+not later argv. Job JSON is `{AGENT_JOB_DIR}/{id}.json` (`job-json`); never a
+nested `{id}/{id}.json`. It is not a `workflow_runner.py` id. Do not fan
 out `collect` via `run-slave.sh --command`. Install the Python package on the
 gateway only; remote ranks get an inline SSH payload.
 
@@ -105,6 +161,8 @@ The runner performs deterministic submit, blocking wait, validation, exception c
 Free-form tool use is allowed only for `workflow_missing`, `implementation_missing`, `invalid_arguments` that cannot be corrected from the task, `execution_error`, `timeout`, or `contract_error`.
 
 Use the returned `job`, failed hosts, report text, and `reason_code`; do not repeat broad collection already performed by the runner. Diagnose once. If a safe targeted retry is justified and `retry_allowed` is true, run the **same workflow** once with `--attempt 2`. After attempt 2, report the remaining error and stop.
+
+`mpi-monitor wrap` and `workflow_runner.py` write `$CLUSTERHELM_INCIDENT_PATH` (`<job_id>.incident.json`) on failure. That sidecar is merged into job JSON while you are still running — do not skip the final report contract. After the first wrap/workflow exception: at most **one** targeted retry, then print `AGENT_STATUS` + `PARTITION_REPORT_*` and stop. Unbounded Hydra/SSH/firewall loops are forbidden.
 
 For missing workflows/implementations, create only the minimum deterministic implementation needed for the request, execute it once, and recommend promoting it into `slave/workflows/`. Never silently clear exclusions or perform unbounded repair loops.
 
@@ -220,7 +278,7 @@ python3 scripts/workflows/workflow_runner.py list
 | Skill | When to load | Action |
 |-------|--------------|--------|
 | `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
-| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → **CLI hard gate**; if missing, fail and stop; else preflight then one `mpi-monitor wrap --hosts … --match <rank-binary> -- CMD` |
+| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → **CLI hard gate** (`probe` / argv array, never `"$MPI_MON"`); if missing, fail and stop; else preflight then one `"${argv[@]}" wrap --hosts … --match <rank-basename> --` plus the generic `mpirun` line in **MPI launch** |
 | `nodestatus` | User asks about node health, reachability, freshness, exclusions, partition status, targeted probe, exclude, or clear | Load skill → query the gateway-local daemon; mutate one owned host only on explicit request |
 
 After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
@@ -230,12 +288,18 @@ After `mem-api.sh partition`, synthesize a memory table report in `partition_rep
 After `mpi-monitor wrap`, synthesize a process-monitor section in
 `partition_report` style from `meta.json` and series/chart counts (see skill
 `mpi-monitor`). Do not dump raw JSONL. If the CLI hard gate failed, report
-`failed` with that reason and do not wrap.
+`failed` with that reason and do not wrap. If wrap's exit code is non-zero,
+print the failed/partial contract after at most one targeted retry (for
+example `-wdir /tmp`). Do not continue unbounded launcher diagnosis.
 
 **Forbidden for MPI process monitor:** continue after a missing CLI; omit
-`--hosts`; match `mpirun` instead of the rank binary; `pip install` as job
+`--hosts`; match `mpirun` / later argv instead of the rank executable
+(comm/argv0); quote a multi-word CLI as `"$MPI_MON"`; open nested
+`{AGENT_JOB_DIR}/{id}/{id}.json`; `pip install` as job
 recovery or on every compute node; fan-out `collect` via
-`run-slave.sh --command` or `workflow_runner.py`.
+`run-slave.sh --command` or `workflow_runner.py`; unbounded repair after wrap
+failure; `mpi-monitor --help` / `wrap --help` / `mpirun --help` as a
+substitute for the hard gate or before the first wrap.
 
 After a nodestatus query, synthesize one node-status section in
 `partition_report` style. Do not dump raw JSON without state, freshness,
@@ -253,6 +317,8 @@ calls, or exclude/clear without an explicit request and reason.
 - Skipping the workflow match/run sequence for a known task
 - Exploratory bash, per-node SSH, direct polling, or extra checks after workflow success
 - More than one diagnosis or more than one targeted retry
+- Unbounded launcher diagnosis after wrap/workflow failure (print the report contract instead)
+- `--help` / `-h` on a documented CLI before the first real invocation (see **CLI --help**)
 - Executing user tasks before partition node availability is confirmed
 - Leaving Master to assemble partition status from scattered `nodes.*`
 - Executing without preflight
