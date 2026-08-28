@@ -135,6 +135,31 @@ def _layout(agent_root: Path) -> dict[str, Path]:
     }
 
 
+def _record_runner_incident(result: dict[str, Any]) -> None:
+    scripts = Path(__file__).resolve().parents[1]
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import incident_io  # noqa: WPS433
+
+    job = result.get("job") or {}
+    detail = result.get("message") or ""
+    report = result.get("partition_report") or {}
+    markdown = report.get("markdown") or ""
+    if markdown:
+        detail = f"{detail}\n{markdown}"[-2000:]
+    incident_io.write_incident_from_env(
+        {
+            "step": "workflow",
+            "hosts": list(job.get("reachable_hosts") or job.get("exec_fail") or []),
+            "exit_code": 1,
+            "command": [result.get("workflow_id") or "workflow"],
+            "detail_tail": detail,
+            "source": "workflow_runner",
+            "reason_code": result.get("reason_code"),
+        }
+    )
+
+
 def _exception(
     workflow_id: str,
     reason_code: str,
@@ -145,7 +170,7 @@ def _exception(
     job: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = (job or {}).get("partition_report") or {}
-    return {
+    result = {
         "workflow_id": workflow_id,
         "outcome": "exception",
         "reason_code": reason_code,
@@ -158,6 +183,8 @@ def _exception(
         "job": job or {},
         "partition_report": report,
     }
+    _record_runner_incident(result)
+    return result
 
 
 def _submit_and_wait(
@@ -413,7 +440,7 @@ def run_workflow(
         _format_memory_report(job)
     outcome, reason_code = classify_job(job, workflow)
     report = job.get("partition_report") or {}
-    return {
+    result = {
         "workflow_id": workflow_id,
         "arguments": arguments,
         "outcome": outcome,
@@ -425,6 +452,9 @@ def run_workflow(
         "job": job,
         "partition_report": report,
     }
+    if outcome == "exception":
+        _record_runner_incident(result)
+    return result
 
 
 def _default_agent_root() -> Path:

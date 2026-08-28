@@ -10,12 +10,12 @@ SRC="$ROOT/tests/mpi/fullcore_test.c"
 BIN="$ROOT/tests/mpi/fullcore_test"
 SLAVE_CONF="$ROOT/slave/config/slave.conf"
 RESOLVE="$ROOT/slave/scripts/resolve-partition.py"
-# Gateway flat deploy fallback
+# Gateway flat deploy: config/ and scripts/ live under AGENT_HOME or $ROOT
 if [[ ! -f "$SLAVE_CONF" ]]; then
-  SLAVE_CONF="${AGENT_HOME:-/home/smt/agents}/config/slave.conf"
+  SLAVE_CONF="${AGENT_HOME:-$ROOT}/config/slave.conf"
 fi
 if [[ ! -x "$RESOLVE" && ! -f "$RESOLVE" ]]; then
-  RESOLVE="${AGENT_HOME:-/home/smt/agents}/scripts/resolve-partition.py"
+  RESOLVE="${AGENT_HOME:-$ROOT}/scripts/resolve-partition.py"
 fi
 
 if [[ "$(hostname -s)" != cn1 ]]; then

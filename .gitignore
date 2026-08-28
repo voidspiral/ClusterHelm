@@ -2,6 +2,9 @@
 var/agent-jobs/*
 !var/agent-jobs/.gitkeep
 
+# Cursor local debug (agent/skills mdc) — do not commit
+.cursor/
+
 # Python
 __pycache__/
 *.py[cod]

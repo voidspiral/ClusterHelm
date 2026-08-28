@@ -17,7 +17,7 @@ COMMAND=""
 PROMPT=""
 RUNTIME=""
 TASK_TITLE=""
-DEADLINE_SEC=1800
+DEADLINE_SEC=""
 
 read_master_default() {
   local key="$1" fallback="$2"
@@ -54,10 +54,13 @@ done
 
 [[ -n "$PARTITION" && ( -n "$COMMAND" || -n "$PROMPT" ) ]] || usage
 
+DEADLINE_SEC="${DEADLINE_SEC:-$(read_master_default default_deadline 1800)}"
 GATEWAY="${GATEWAY:-$(python3 "$SCRIPT_DIR/list-slaves.py" --partition "$PARTITION" 2>/dev/null || read_master_default default_gateway cn1)}"
 SUBMIT_TIMEOUT="$(read_master_default submit_timeout 30)"
-REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
-REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/run-slave.sh"
+REMOTE_PROJECT="$(read_master_default remote_project "")"
+[[ -n "$REMOTE_PROJECT" ]] || { echo "ERROR: set remote_project in $CONFIG" >&2; exit 1; }
+REMOTE_RUN_SLAVE="$(read_master_default remote_run_slave scripts/run-slave.sh)"
+REMOTE_SCRIPT="${REMOTE_PROJECT}/${REMOTE_RUN_SLAVE}"
 
 REMOTE_ARGS="--partition $(printf %q "$PARTITION") --deadline $DEADLINE_SEC"
 [[ -n "$COMMAND" ]] && REMOTE_ARGS+=" --command $(printf %q "$COMMAND")"

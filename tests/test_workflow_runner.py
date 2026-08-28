@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -91,6 +92,31 @@ class WorkflowCatalogTests(unittest.TestCase):
             )
         self.assertEqual("exception", result["outcome"])
         self.assertEqual("implementation_missing", result["reason_code"])
+
+    def test_exception_writes_incident_sidecar_when_env_set(self):
+        with tempfile.TemporaryDirectory() as temp:
+            inc = Path(temp) / "job.incident.json"
+            previous = os.environ.get("CLUSTERHELM_INCIDENT_PATH")
+            os.environ["CLUSTERHELM_INCIDENT_PATH"] = str(inc)
+            try:
+                result = self.runner.run_workflow(
+                    workflow_id="missing",
+                    partition="test",
+                    raw_args=[],
+                    attempt=1,
+                    timeout=30,
+                    agent_root=ROOT / "slave",
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("CLUSTERHELM_INCIDENT_PATH", None)
+                else:
+                    os.environ["CLUSTERHELM_INCIDENT_PATH"] = previous
+            self.assertEqual("exception", result["outcome"])
+            data = json.loads(inc.read_text())
+            self.assertEqual(data["step"], "workflow")
+            self.assertEqual(data["source"], "workflow_runner")
+            self.assertEqual(data["reason_code"], "workflow_missing")
 
 
 class ClassificationTests(unittest.TestCase):

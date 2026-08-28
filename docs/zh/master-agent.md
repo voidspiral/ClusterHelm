@@ -122,7 +122,7 @@ python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); pri
 ## 汇报（关键）
 
 - **主报告：** 粘贴或转述 Slave 的 `partition_report.markdown`
-- **进行中：** `partition_report.summary_line` 或 JSON `progress` + `summary_line`
+- **进行中：** `poll.sh` 若有 `summary` / `failures[]` / `agent_progress`（wrap 或 workflow 失败 sidecar），立即转述，不必等 `partition_report`。`poll-wait.sh` 仍阻塞到终态。
 - **禁止**在已有 `partition_report` 时自己遍历 `nodes.*` 拼总结
 
 ## 禁止

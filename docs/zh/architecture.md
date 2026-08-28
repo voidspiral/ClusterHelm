@@ -40,7 +40,7 @@ flowchart TB
     direction TB
     RS[run-slave.sh]
     SC[slave.conf<br/>agent_opencode_bin]
-    SJ[/home/smt/agents/var/agent-jobs/job-*.json/]
+    SJ[$remote_project/var/agent-jobs/job-*.json/]
     SA["Slave Agent LLM<br/>OpenCode: slave-agent"]
     WR["workflow_runner.py<br/>单次聚合调用"]
     WK["_worker<br/>确定性脚本 worker"]
@@ -63,7 +63,7 @@ flowchart TB
 
   U --> MA
   MS -->|仅 SSH 到网关| RS
-  MP -->|SSH poll| RS
+  MP -->|SSH wait（完成信号）| RS
   WK -->|preflight ping/SSH + exec| N1
   WK --> N2
   WK --> N3
@@ -94,11 +94,11 @@ flowchart LR
 **Job JSON** 是 Master 与网关之间的契约：
 
 ```
-submit.sh     ──SSH──►  run-slave.sh submit  ──►  /home/smt/agents/var/agent-jobs/<job_id>.json
+submit.sh     ──SSH──►  run-slave.sh submit  ──►  $remote_project/var/agent-jobs/<job_id>.json
 poll-wait.sh  ──SSH──►  run-slave.sh wait    ◄──  JSON（阻塞至终态后返回，无需多次轮询）
 ```
 
-`run-slave.sh wait` 在网关侧以递增 backoff（5s→30s）轮询本机 JSON，等 status 到达 `done|partial|failed` 后 `cat` 返回。Master 只需 **一次 SSH 调用**，无需多次轮询。
+Workers 在终态写入 job JSON 以及 sidecar `<job_id>.done`（成功 `done`/`partial` 与失败 `failed` 都会通知）。`run-slave.sh wait` 在网关侧阻塞等待该完成信号（优先 `inotifywait`，否则 ≤1s 轮询 `.done`），然后 `cat` 返回 JSON。Master 只需 **一次 SSH 调用**，无需多次轮询，也无需等到 `--timeout` 才发现任务已结束。
 
 Master 将最新 poll 缓存在 `var/agent-jobs/<job_id>.last.json`。
 
@@ -122,7 +122,7 @@ flowchart LR
   subgraph Cn1["Slave 网关 cn1"]
     SOC[slave-agent.md]
     RJ[run-slave.sh / slave.conf]
-    JD[/home/smt/agents/var/agent-jobs/]
+    JD[$remote_project/var/agent-jobs/]
   end
 
   DA --> DM
@@ -174,7 +174,7 @@ sequenceDiagram
     Exec->>RS: workflow_runner.py run（单次调用）
     RS->>Node: 确定性 preflight + exec
     Exec->>RS: AGENT_STATUS + PARTITION_REPORT 契约
-    RS->>RS: 解析为 partition_report
+    RS->>RS: 立即 finalize 并写入 .done，然后结束 OpenCode
   end
   MA->>PS: poll-wait --job-id（单次阻塞，SSH → run-slave.sh wait）
   PS->>RS: SSH wait
@@ -239,7 +239,7 @@ opencode.json (master-agent)
 master/config/{master,partitions,slaves}.conf
 master/scripts/{submit,poll,poll-wait,list-slaves}
 
-slave/              →   经 deploy-slave.sh 部署为扁平 /home/smt/agents/
+slave/              →   经 deploy-slave.sh 部署为扁平 $remote_project/
   .opencode/        →   .opencode/
   opencode.json     →   opencode.json
   config/slave.conf →   config/slave.conf
@@ -251,7 +251,7 @@ slave/              →   经 deploy-slave.sh 部署为扁平 /home/smt/agents/
 master/scripts/submit.sh      SSH →    （仅 Master）
 master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait（阻塞至终态）
                                      scripts/run-slave.sh submit / _worker / _agent_worker
-var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.json
+var/agent-jobs/*.last.json  ←──      $remote_project/var/agent-jobs/*.json
 ```
 
 ---
@@ -262,7 +262,7 @@ var/agent-jobs/*.last.json  ←──      /home/smt/agents/var/agent-jobs/*.jso
 |------|------|------|
 | `master/config/partitions.conf` | `test cn[1-10]` | 逻辑分区 → 节点集（SoT；部署到网关） |
 | `master/config/slaves.conf` | `cn1 test cn[1-10]` | 网关注册表（仅 Master） |
-| `master/config/master.conf` | `default_gateway cn1` | Master 默认与轮询策略 |
+| `master/config/master.conf` | `remote_project /home/cn1/agents` | Master 默认、超时、网关部署根 |
 | `slave/config/slave.conf` | `agent_opencode_bin opencode` | 排除策略 + agent CLI |
 
 ```bash

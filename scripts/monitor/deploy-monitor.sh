@@ -6,7 +6,14 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MONITOR_DIR="$(cd "$(dirname "$0")" && pwd)"
 MASTER_CONF="$ROOT/master/config/master.conf"
 GATEWAY="${1:-cn1}"
-REMOTE_PROJECT="/home/smt/agents"
+REMOTE_PROJECT="$(
+  awk '{ sub(/\r$/, "") } $1 == "remote_project" { print $2; exit }' "$MASTER_CONF" 2>/dev/null \
+    || true
+)"
+[[ -n "$REMOTE_PROJECT" ]] || {
+  echo "ERROR: set remote_project in $MASTER_CONF" >&2
+  exit 1
+}
 
 echo "== Deploy memory monitor to $GATEWAY =="
 

@@ -260,6 +260,66 @@ print(json.dumps({"partition": "test", "state_counts": {"online": 2}}))
             self.assertIn("test", payload["partitions"])
             self.assertEqual(payload["failures"][0]["partition"], "work")
 
+    def test_summary_uses_remote_project_from_master_conf(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            master_conf = root / "master.conf"
+            master_conf.write_text("remote_project /opt/clusterhelm\n")
+            slaves = root / "slaves.conf"
+            slaves.write_text("gw1 test cn[1-2]\n")
+            seen = root / "seen.txt"
+            ssh = root / "ssh"
+            ssh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                f"open({str(seen)!r}, 'w').write(' '.join(sys.argv[1:]))\n"
+                "print(json.dumps({'partition': 'test'}))\n"
+            )
+            ssh.chmod(0o755)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "master/scripts/nodestatus-summary.py"),
+                    "--slaves-conf",
+                    str(slaves),
+                    "--master-conf",
+                    str(master_conf),
+                    "--ssh-bin",
+                    str(ssh),
+                    "--timeout",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            argv = seen.read_text()
+            self.assertIn("/opt/clusterhelm/bin/nodestatus", argv)
+
+    def test_missing_remote_project_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            master_conf = root / "master.conf"
+            master_conf.write_text("default_gateway cn1\n")
+            slaves = root / "slaves.conf"
+            slaves.write_text("gw1 test cn[1-2]\n")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "master/scripts/nodestatus-summary.py"),
+                    "--slaves-conf",
+                    str(slaves),
+                    "--master-conf",
+                    str(master_conf),
+                    "--timeout",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("remote_project", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

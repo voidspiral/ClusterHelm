@@ -18,7 +18,7 @@
 - **cn1 不是纯调度机** — 计入 `reachable_hosts`、slot 映射（`cn1:N`）和满核 MPI（`-host cn1:…,cn2:…`）。
 - 对 **cn1** 的预检/执行走**本地路径**（`run-slave.sh` 的 `is_local`，不经 SSH 回环）。
 - MPI 等分区级任务：可由本机发起 `mpirun`，但 **cn1 的核数与 cn2… 一样参与分配**。
-- MPI 环境已自动注入：agent 启动时 `PATH` 已包含 `slave.conf` 中 `mpi_mpirun` 的目录（`/home/smt/mpich4-install/bin`），且环境变量 `MPICC` / `MPIRUN` 已设置 — agent 可直接使用 `mpirun` / `mpicc` 而不需指定绝对路径。
+- MPI 环境已自动注入：agent 启动时 `PATH` 已包含 `slave.conf` 中 `mpi_mpirun` 的目录（当前为 `/usr/bin`），且环境变量 `MPICC` / `MPIRUN` 已设置 — agent 可直接使用 `mpirun` / `mpicc` 而不需指定绝对路径。
 - Worker 下发的 per-node `--command` 也会在 cn1 上执行；仅当命令应全分区只跑一份时（如单次 `mpirun`），再用 `$(hostname -s)` 等做网关侧分支。
 
 ---
@@ -58,7 +58,7 @@ Slave 仍然是 LLM，负责把具体需求归一化为一个 workflow 和参数
 标准调用：
 
 ```bash
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py run hostname-check \
+python3 scripts/workflows/workflow_runner.py run hostname-check \
   --partition test --timeout 600
 ```
 
@@ -78,8 +78,8 @@ runner 在一次工具调用内完成 submit、阻塞 wait、结果校验、异�
 持久化：`$AGENT_JOB_DIR/node-exclusions.json`（各网关独立）
 
 ```bash
-python3 /home/smt/agents/scripts/preflight/node_exclude.py list --partition test
-python3 /home/smt/agents/scripts/preflight/node_exclude.py clear --partition test --host cn5
+python3 scripts/preflight/node_exclude.py list --partition test
+python3 scripts/preflight/node_exclude.py clear --partition test --host cn5
 ```
 
 Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exclude_reason`、`ping`/`ssh`。
@@ -95,6 +95,8 @@ Job JSON：`excluded_hosts`、`newly_excluded`；节点 `state: excluded`、`exc
 | `exec_ok` / `exec_fail` | 执行结果 |
 
 `run-slave.sh` 会自动生成。交互式使用时你也须先写分区可用性摘要，再附细节。
+
+wrap / workflow 失败时会写 `<job_id>.incident.json`；`supervise` 把它合并进仍在 `running` 的 job JSON（`summary`、`failures[]`、`agent_progress`）。Master 用 `poll.sh` 即可看到，不必等终态契约。首次 incident 后 120s 内若仍无报告契约，wrapper 用 sidecar + log 尾收口为 `failed`。
 
 ## 报告示例
 

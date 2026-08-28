@@ -11,7 +11,7 @@ Reference for `/add-tools2` (Master-only meta skill). Example deployed skills li
 | Generated skill (Slave) | `slave/.opencode/skills/<name>/` | `deploy-slave.sh` |
 | Generated skill (Slave OpenCode) | `slave/.opencode/skills/<name>/` | Same deploy |
 | Generated skill (Master) | `.opencode/skills/<name>/` + `.opencode/skills/<name>/` | Not deployed |
-| Remote (Slave) | `/home/smt/agents/.opencode/skills/<name>/` | After deploy |
+| Remote (Slave) | `$remote_project/.opencode/skills/<name>/` | After deploy; `remote_project` from `master.conf` |
 
 Deploy command: `./scripts/deploy/deploy-slave.sh <gateway>`
 
@@ -88,7 +88,7 @@ When the new skill is user-facing on Slave, add a row to `slave/.opencode/agents
 Before finishing, skim an existing skill under `slave/.opencode/skills/` for consistency:
 
 1. Deployment boundary stated in first paragraphs
-2. Absolute paths under `/home/smt/agents/`
+2. Paths relative to gateway `remote_project` (`master.conf`)
 3. Forbidden section present
 4. Both zh files exist
 5. SKILL.md line count < 500
