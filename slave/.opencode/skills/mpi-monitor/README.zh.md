@@ -5,24 +5,25 @@
 
 ## 快速参考
 
-先探测，未安装则停止（不要 wrap）：
+argv 数组 + `probe`，禁止 `"$MPI_MON"`：
 
 ```bash
-command -v mpi-monitor || python3 -c "import mpi_monitor" || exit 2
-```
-
-```bash
-mpi-monitor wrap \
-  --hosts cn1,cn2 \
-  --match is.S.x \
+VENDOR="${REMOTE_PROJECT:-/home/cn1/agents}/vendor/mpi-monitor"
+# 优先：MPI_MONITOR_VENDOR="$VENDOR" bash "$VENDOR/scripts/probe-cli.sh"
+argv=("$VENDOR/.venv/bin/mpi-monitor")
+"${argv[@]}" probe || exit 2
+"${argv[@]}" job-json   # {AGENT_JOB_DIR}/{id}.json，不要套目录
+"${argv[@]}" wrap --hosts cn1,cn2 --match is.S.x \
   --output-dir "${AGENT_JOB_DIR:-/home/cn1/agents/var/agent-jobs}/mpi-monitor" \
-  --interval 0.1 \
-  -- \
-  mpirun -np 2 -hosts cn1,cn2 /path/to/is.S.x
-
-python3 -m mpi_monitor plot --run-dir /path/to/{run_id}
+  --interval 0.1 -- mpirun -np 2 -hosts cn1,cn2 -wdir /tmp /path/to/is.S.x
 ```
 
-- **部署**：Skill → `deploy-slave.sh`；CLI → `deploy-mpi-monitor.sh`（仅网关）。未安装则 skill **直接失败**
-- **作用域**：仅 Slave 网关；Master 用 `submit.sh --prompt` 委托
-- **数据源 / 入口**：`/proc/<pid>` 的 stat / status / io；主入口 `mpi-monitor wrap`
+- **部署**：Skill → `deploy-slave.sh`；CLI → `deploy-mpi-monitor.sh`（仅网关）
+- **作用域**：仅 Slave；Master 用 `submit.sh --prompt` 委托
+- **`--match`**：rank 的 comm / argv0（不要 `python3 -c "MARKER=…"`）
+- **入口**：`/proc/<pid>`；主命令 `wrap`
+- **快速路径**：禁止读包源码或重新选型；每个作业按输出契约一次生成脚本、一次
+  wrap、一次后处理、一次写报告
+- **大字段**：`plot_base64_png` 只写结构化 job JSON；markdown 仅写路径与大小
+- **异常处理**：保留已成功阶段，只重试失败阶段一次；wrap 成功后即使绘图或报告
+  失败也禁止重跑 MPI，按完整度返回 `partial`
