@@ -66,6 +66,14 @@ runner 在一次工具调用内完成 submit、阻塞 wait、结果校验、异�
 
 只有 `workflow_missing`、`implementation_missing`、`invalid_arguments`、`execution_error`、`timeout`、`contract_error` 可进入自由处理。异常处理必须复用 runner 返回的 job/report 上下文，只诊断一次；仅在 `retry_allowed=true` 时以 `--attempt 2` 对同一 workflow 做一次定向重试，之后必须报告并停止。
 
+MPI rank 或匹配进程的 CPU、RSS/内存、IO、时序监控属于
+`mpi-monitor` sidecar 例外，不进入 workflow runner。Slave 必须加载
+`mpi-monitor` Skill，再执行一次 `wrap`。固定的是监控控制层，不是任务实现：
+允许按需求生成任意任务入口、循环逻辑、CSV、绘图和报告产物，不固定文件名、语言
+或布局。生成的任务入口必须作为 `mpi-monitor wrap ... --` 后的工作负载，不能用
+`pidstat`、`ps` 或临时采样器替换监控后端。成功报告须包含
+`monitor_backend=mpi-monitor`、run ID、meta 路径和 series 数量。
+
 ## 节点排除
 
 | 触发 | 行为 |

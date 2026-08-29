@@ -107,7 +107,12 @@ First classify whether the task is primarily about node health, status,
 freshness, reachability, probe, or exclusions. For that intent, load
 `nodestatus` and follow its direct Unix-socket flow.
 
-For every other agent-mode task, follow this sequence **before any exploratory bash**:
+Next classify whether the task asks for process-level CPU, RSS/memory, IO, or
+time-series monitoring of MPI ranks or a matched executable. For that intent,
+load `mpi-monitor` before exploratory bash and follow its gateway-local sidecar
+flow. Do not send this intent to `workflow_runner.py`.
+
+For every remaining agent-mode task, follow this sequence **before any exploratory bash**:
 
 1. **Normalize once** — map the request to exactly one workflow id and typed arguments.
 2. **Run once** — invoke `workflow_runner.py run` exactly once.
@@ -139,6 +144,15 @@ not later argv. Job JSON is `{AGENT_JOB_DIR}/{id}.json` (`job-json`); never a
 nested `{id}/{id}.json`. It is not a `workflow_runner.py` id. Do not fan
 out `collect` via `run-slave.sh --command`. Install the Python package on the
 gateway only; remote ranks get an inline SSH payload.
+
+The control plane is fixed; task artifacts are not. The Slave may generate any
+job-local task entrypoint, loop logic, converter, plot, or report builder needed
+by the request, with no required filename, language, or layout. A generated
+task entrypoint is the command passed after `mpi-monitor wrap ... --`; it must
+not replace the selected backend with `pidstat`, `ps`, or an ad-hoc sampler.
+Report `monitor_backend=mpi-monitor`, `monitor_run_id`, `monitor_meta_path`, and
+`monitor_series_count`. Missing backend evidence is a `contract_error`, not a
+successful monitor report.
 
 For non-status tasks, deterministic preflight has already used nodestatus.
 Consume `nodestatus_snapshot`, `nodes.*.nodestatus`, `status_source`, and

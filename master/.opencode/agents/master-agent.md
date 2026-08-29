@@ -112,6 +112,39 @@ Write the `--prompt` as a **task brief for the Slave agent** (intent + constrain
 
 Runtime on gateway: `slave.conf: agent_opencode_bin`; override per job with `--runtime`.
 
+## Prompt minimization contract (mandatory)
+
+The Master `--prompt` is a **task delta**, not a restatement of the Slave
+agent, skill, or runtime contracts.
+
+- Include only the task intent, target scope, concrete parameters, and
+  genuinely user-specific acceptance criteria.
+- For a known skill, name it once and say to follow its standard contract.
+  Do not enumerate its standard probe, execution, artifact, report, retry, or
+  failure rules.
+- Do not repeat rules already injected by `run-slave.sh`, including preflight
+  provenance, exclusions, one-run behavior, backend bans, incident handling,
+  or `partition_report` fields.
+- Do not translate the request into a long implementation plan. The Slave
+  chooses commands and task-local artifacts under its own contract.
+- Default budget: at most 300 Chinese characters or 120 English words. Exceed
+  it only when non-standard user requirements cannot be expressed within the
+  budget.
+- Before submitting, remove any clause that does not change the Slave's
+  behavior for this specific job.
+
+Preferred:
+
+```bash
+./scripts/submit.sh --partition test --prompt \
+  '在 cn1、cn2 各运行 1 个 rank 执行 /path/is.S.x；加载 mpi-monitor，按标准契约输出完整原始结果和时序图。只运行一次。'
+```
+
+Forbidden prompt expansion: listing every standard JSONL/CSV/PNG artifact,
+every `partition_report` field, generic preflight mechanics, backend
+prohibitions, and retry policy when the selected skill/runtime already defines
+them.
+
 ## Script mode (exception only)
 
 Use `--command` **only** when the user **explicitly** asks for script/deterministic mode, or a fixed one-liner with zero judgment:

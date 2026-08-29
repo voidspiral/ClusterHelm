@@ -289,6 +289,32 @@ class ScriptFlagsTests(unittest.TestCase):
         self.assertIn("CLUSTERHELM_INCIDENT_PATH", src)
         self.assertIn("AGENT_JOB_ID", src)
 
+    def test_runtime_prompt_routes_process_monitoring_to_mpi_monitor(self):
+        src = RUN_SLAVE.read_text()
+        normalized = " ".join(src.split())
+        self.assertIn("MPI PROCESS-MONITOR INTENT EXCEPTION", src)
+        self.assertIn("load the `mpi-monitor` skill", normalized)
+        self.assertIn(
+            "must not replace `mpi-monitor` with `pidstat`",
+            normalized,
+        )
+        self.assertIn(
+            "Custom job artifacts and task entrypoints are allowed",
+            normalized,
+        )
+        self.assertIn(
+            "must pass the generated task entrypoint as the wrapped command",
+            normalized,
+        )
+        self.assertNotIn("driver.sh", src)
+        for field in (
+            "monitor_backend=mpi-monitor",
+            "monitor_run_id",
+            "monitor_meta_path",
+            "monitor_series_count",
+        ):
+            self.assertIn(field, src)
+
     def test_poll_wait_timeout_defaults_follow_deadline_not_poll_timeout(self):
         src = POLL_WAIT.read_text()
         self.assertNotIn("TIMEOUT=600", src)

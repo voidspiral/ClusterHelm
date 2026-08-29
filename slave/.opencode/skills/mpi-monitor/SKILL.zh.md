@@ -114,6 +114,35 @@ probe → 已持久化 preflight → 一次生成脚本 → 一次 wrap
 
 ---
 
+## 固定控制层，开放任务产物
+
+本 Skill 固定的是监控控制层，而不是任务实现。**允许生成自定义任务产物和任务
+入口**，包括循环逻辑、输出收集器、CSV 转换器、组合图和报告构建器。Slave 可
+根据任务自由选择语言、结构、文件名与布局，不要求存在任何特定脚本或产物。
+
+如果生成工作负载入口，**生成的任务入口必须作为 `mpi-monitor` 包装的命令**：
+
+```bash
+"${argv[@]}" wrap --hosts "$HOSTS" --match "$RANK_BASENAME" \
+  --output-dir "$OUT" --interval "$INTERVAL" -- \
+  "$TASK_ENTRYPOINT" "${TASK_ARGS[@]}"
+```
+
+一次 wrap 可以包住重复启动同一 MPI benchmark 的任务入口；采集器会发现每次
+新建的匹配 rank PID。这种自由度不得替换已经选定的监控后端，禁止用 `pidstat`、
+`ps` 或临时采样器产出成功结果。它们只能在真实失败后用于定向诊断。
+
+最终 `partition_report` 必须提供后端证据：
+
+- `monitor_backend=mpi-monitor`
+- `monitor_run_id`
+- `monitor_meta_path`
+- `monitor_series_count`
+
+缺少后端证据属于 `contract_error`。自定义产物的名称和内容不属于固定契约。
+
+---
+
 ## 确定性异常处理
 
 因采集、绘图、base64 编码或报告落盘失败时，**禁止重新运行已经成功的被包装

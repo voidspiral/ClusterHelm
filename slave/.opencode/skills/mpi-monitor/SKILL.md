@@ -81,6 +81,39 @@ probe → persisted preflight → generate scripts once → wrap once
 Only a real non-zero/usage failure may enter diagnosis, with the existing
 one-retry limit. Commentary and extra validation are not separate steps.
 
+## Fixed control plane, flexible task artifacts
+
+The Skill fixes the monitoring control plane, not the workload implementation.
+**Custom job artifacts and task entrypoints are allowed**, including generated
+loop logic, output collectors, CSV converters, combined plots, and report
+builders. The Slave chooses their language, structure, filename, and layout
+from the task; no particular artifact or script is required.
+
+If the Slave generates a workload entrypoint, it must **pass any generated task
+entrypoint as the command wrapped by `mpi-monitor`**:
+
+```bash
+"${argv[@]}" wrap --hosts "$HOSTS" --match "$RANK_BASENAME" \
+  --output-dir "$OUT" --interval "$INTERVAL" -- \
+  "$TASK_ENTRYPOINT" "${TASK_ARGS[@]}"
+```
+
+One wrap may surround an entrypoint that launches the same MPI benchmark
+repeatedly; the collectors discover each new matching rank PID. This freedom
+must not replace the selected monitoring backend with `pidstat`, `ps`, or an
+ad-hoc sampler. Those tools may be used only for targeted diagnosis after a
+real failure, never as the successful monitoring result.
+
+The final `partition_report` must provide backend evidence:
+
+- `monitor_backend=mpi-monitor`
+- `monitor_run_id`
+- `monitor_meta_path`
+- `monitor_series_count`
+
+Missing backend evidence is `contract_error`. The generated artifact names and
+contents are deliberately not part of that fixed contract.
+
 ## Deterministic exception handling
 
 **Never rerun a successful wrapped command** because collection, plotting,

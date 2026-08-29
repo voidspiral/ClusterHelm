@@ -77,6 +77,32 @@ class MpiMonitorSkillFastPathTests(unittest.TestCase):
             self.assertIn(f"`{reason_code}`", self.chinese)
         self.assertIn("只允许对失败阶段定向重试一次", self.chinese_compact)
 
+    def test_skill_fixes_control_plane_but_preserves_job_artifact_freedom(self):
+        self.assertIn("## Fixed control plane, flexible task artifacts", self.english)
+        self.assertIn(
+            "Custom job artifacts and task entrypoints are allowed",
+            self.english_normalized,
+        )
+        self.assertIn(
+            "pass any generated task entrypoint as the command wrapped by `mpi-monitor`",
+            self.english_normalized,
+        )
+        self.assertIn(
+            "must not replace the selected monitoring backend",
+            self.english_normalized,
+        )
+        self.assertNotIn("driver.sh", self.english)
+
+    def test_chinese_skill_preserves_job_artifact_freedom(self):
+        self.assertIn("## 固定控制层，开放任务产物", self.chinese)
+        self.assertIn("允许生成自定义任务产物和任务入口", self.chinese_compact)
+        self.assertIn(
+            "生成的任务入口必须作为`mpi-monitor`包装的命令",
+            self.chinese_compact,
+        )
+        self.assertIn("不得替换已经选定的监控后端", self.chinese_compact)
+        self.assertNotIn("driver.sh", self.chinese)
+
 
 if __name__ == "__main__":
     unittest.main()

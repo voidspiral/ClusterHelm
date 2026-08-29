@@ -145,6 +145,19 @@ These are public behavioral guarantees. A Slave agent following the happy path
 must not inspect `wrap.py`, `cli.py`, `collect.py`, or `discover.py` to verify
 them again.
 
+## Backend evidence and generated task artifacts
+
+Generated job artifacts are unrestricted by this interface. A Slave may create
+any task entrypoint, repeated `mpirun` logic, converter, plot, or report builder
+with any suitable filename, language, and layout. The generated workload is
+passed after `wrap ... --`; it does not implement or replace process monitoring.
+
+A successful report identifies the selected backend with
+`monitor_backend=mpi-monitor` and includes `monitor_run_id`,
+`monitor_meta_path`, and `monitor_series_count`. These values come from the
+actual wrap output. `pidstat`, `ps`, or an ad-hoc sampler cannot satisfy that
+contract.
+
 ## Exception result contract
 
 Use these stable reason codes: `hard_gate_failed`, `insufficient_hosts`,
