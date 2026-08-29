@@ -31,8 +31,8 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 | Step | Command | Notes |
 |------|---------|-------|
 | **1. Preflight** | `./scripts/list-slaves.py --partition test` | Confirms gateway (`cn1` for `test`). Read `partitions.conf` + `slaves.conf` when config is unclear. |
-| **2. Submit** | `./scripts/submit.sh --partition test --prompt '<task>' [--task TITLE]` | Default: agent-to-agent. `--command` only if user explicitly wants script mode. |
-| **3. Poll** | `./scripts/poll-wait.sh --job-id <job_id>` | **Single blocking call** — SSH to gateway, blocks until `done|partial|failed`. No loop, no intermediate LLM. |
+| **2. Submit** | `./scripts/submit.sh --partition test --prompt '<task>' [--task TITLE]` | Default: agent-to-agent, `--follow` (same SSH waits). `--command` only if user explicitly wants script mode. `--no-follow` for parallel jobs. |
+| **3. Poll** | `./scripts/poll-wait.sh --job-id <job_id>` | Needed after `--no-follow`. After default `--follow`, this is a cheap mux fetch of terminal JSON. No loop, no intermediate LLM. |
 | **4. Report** | Read `partition_report.markdown` from poll JSON | Also show submit command, `--prompt` text, and any Slave exec paths. |
 
 **Step rules:**
