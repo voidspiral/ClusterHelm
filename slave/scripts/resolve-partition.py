@@ -5,6 +5,7 @@ Looks for partitions.conf under:
   - ../config/partitions.conf  (deployed flat or slave/config copy)
   - ../../master/config/partitions.conf  (monorepo SoT on Master)
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -69,6 +70,33 @@ def resolve(name):
     return aliases.get(name, name)
 
 
+def owning_partition(name):
+    aliases = load_partitions()
+    if name in aliases:
+        return name
+    hosts = set(expand(validate_subset(resolve(name))))
+    matches = [
+        logical
+        for logical, nodeset in aliases.items()
+        if hosts <= set(expand(nodeset))
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise SystemExit(f"no owning partition for {name}; see partitions.conf")
+    raise SystemExit(
+        f"ambiguous owning partition for {name}: {', '.join(sorted(matches))}"
+    )
+
+
+def describe(name):
+    nodeset = validate_subset(resolve(name))
+    return {
+        "partition": owning_partition(name),
+        "partition_nodeset": nodeset,
+    }
+
+
 def validate_subset(nodeset):
     hosts = set(expand(nodeset))
     owned = all_owned_hosts()
@@ -84,12 +112,22 @@ def validate_subset(nodeset):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <partition> [--validate]", file=sys.stderr)
+    args = [item for item in sys.argv[1:] if item]
+    if not args:
+        print(f"Usage: {sys.argv[0]} <partition> [--validate|--json]", file=sys.stderr)
         sys.exit(1)
-    name = sys.argv[1]
+    json_mode = "--json" in args
+    flags = {"--validate", "--json"}
+    names = [item for item in args if item not in flags]
+    if len(names) != 1:
+        print(f"Usage: {sys.argv[0]} <partition> [--validate|--json]", file=sys.stderr)
+        sys.exit(1)
+    name = names[0]
+    if json_mode:
+        print(json.dumps(describe(name)))
+        return
     nodeset = resolve(name)
-    if len(sys.argv) > 2 and sys.argv[2] == "--validate":
+    if "--validate" in args:
         validate_subset(nodeset)
     print(nodeset)
 

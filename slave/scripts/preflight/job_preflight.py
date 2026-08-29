@@ -56,6 +56,22 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
 
     _local = socket.gethostname().split(".")[0].lower()
     partition_name = data.get("partition") or data.get("partition_nodeset", "")
+    try:
+        described = json.loads(
+            subprocess.check_output(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve().parents[1] / "resolve-partition.py"),
+                    partition_name,
+                    "--json",
+                ],
+                text=True,
+                timeout=10,
+            )
+        )
+        partition_name = described.get("partition") or partition_name
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError):
+        pass
     store = NodeExclusionStore(job_dir)
     hosts = expand(data["partition_nodeset"])
     status_nodes, status_metadata, query_attempt = query_partition_detailed(
@@ -88,6 +104,7 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
         "probe_result": probe_attempt["result"],
         "probe_error": probe_attempt["error"],
         "fallback_hosts": [],
+        "status_partition": partition_name,
     })
     data["nodestatus_snapshot"] = status_snapshot
 

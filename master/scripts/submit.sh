@@ -22,6 +22,7 @@ RUNTIME=""
 TASK_TITLE=""
 DEADLINE_SEC=""
 FOLLOW=1
+EXEC_SCOPE=""
 
 read_master_default() {
   local key="$1" fallback="$2"
@@ -34,7 +35,7 @@ read_master_default() {
 }
 
 usage() {
-  echo "Usage: $0 --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--gateway HOST] [--deadline SEC] [--runtime auto|opencode] [--follow|--no-follow]" >&2
+  echo "Usage: $0 --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--gateway HOST] [--deadline SEC] [--runtime auto|opencode] [--follow|--no-follow] [--exec-scope auto|gateway|nodeset]" >&2
   echo "  Job = one decomposed task delegated to a slave (not limited to MPI)." >&2
   echo "  --command  script mode: slave runs the command verbatim on each node" >&2
   echo "  --prompt   agent mode: gateway launches the Slave agent CLI with the task (agent-to-agent)" >&2
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --deadline) DEADLINE_SEC="$2"; shift 2 ;;
     --follow) FOLLOW=1; shift ;;
     --no-follow) FOLLOW=0; shift ;;
+    --exec-scope) EXEC_SCOPE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown arg: $1" >&2; usage ;;
   esac
@@ -78,6 +80,7 @@ REMOTE_ARGS="--partition $(printf %q "$PARTITION") --deadline $DEADLINE_SEC"
 [[ -n "$PROMPT" ]] && REMOTE_ARGS+=" --prompt $(printf %q "$PROMPT")"
 [[ -n "$RUNTIME" ]] && REMOTE_ARGS+=" --runtime $(printf %q "$RUNTIME")"
 [[ -n "$TASK_TITLE" ]] && REMOTE_ARGS+=" --task $(printf %q "$TASK_TITLE")"
+[[ -n "$EXEC_SCOPE" ]] && REMOTE_ARGS+=" --exec-scope $(printf %q "$EXEC_SCOPE")"
 
 if [[ "$FOLLOW" -eq 1 ]]; then
   WAIT_TIMEOUT=$((DEADLINE_SEC + WAIT_SLACK))

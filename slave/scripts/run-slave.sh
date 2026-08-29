@@ -6,11 +6,12 @@ JOB_DIR="${AGENT_JOB_DIR:-$(cd "$(dirname "$0")/.." && pwd)/var/agent-jobs}"
 NODE_SSH_TIMEOUT="${AGENT_NODE_SSH_TIMEOUT:-10}"
 
 usage() {
-  echo "Usage: $0 submit --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--deadline SEC] [--runtime auto|opencode]" >&2
+  echo "Usage: $0 submit --partition EXPR (--command CMD | --prompt TASK) [--task TITLE] [--deadline SEC] [--runtime auto|opencode] [--exec-scope auto|gateway|nodeset]" >&2
   echo "       $0 poll --job-id ID" >&2
   echo "       $0 wait --job-id ID [--timeout SEC]" >&2
   echo "  --command  script mode: deterministic per-node exec (built-in worker)" >&2
   echo "  --prompt   agent mode: launch the Slave agent CLI (opencode) with the task" >&2
+  echo "  --exec-scope  gateway runs once on the gateway; nodeset fans out; auto uses gateway for mpirun" >&2
   echo "  wait       block until job terminal, then cat JSON" >&2
   exit 1
 }
@@ -38,7 +39,7 @@ resolve_runtime() {
 }
 
 cmd_submit() {
-  local partition="" command="" prompt="" runtime="" task_title="" deadline=1800
+  local partition="" command="" prompt="" runtime="" task_title="" deadline=1800 exec_scope="auto"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --partition) partition="$2"; shift 2 ;;
@@ -47,6 +48,7 @@ cmd_submit() {
       --runtime) runtime="$2"; shift 2 ;;
       --task) task_title="$2"; shift 2 ;;
       --deadline) deadline="$2"; shift 2 ;;
+      --exec-scope) exec_scope="$2"; shift 2 ;;
       *) echo "Unknown: $1" >&2; exit 1 ;;
     esac
   done
@@ -59,24 +61,38 @@ cmd_submit() {
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   local project_root
   project_root="$(cd "$script_dir/.." && pwd)"
-  local partition_input="$partition"
-  partition=$(python3 "$script_dir/resolve-partition.py" "$partition" --validate)
+  local partition_meta
+  partition_meta=$(python3 "$script_dir/resolve-partition.py" "$partition" --json)
+  local partition_name partition_nodeset
+  partition_name=$(printf '%s\n' "$partition_meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['partition'])")
+  partition_nodeset=$(printf '%s\n' "$partition_meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['partition_nodeset'])")
   local mpi_mpicc mpi_mpirun
   mpi_mpicc="$(slave_conf_get mpi_mpicc '')"
   mpi_mpirun="$(slave_conf_get mpi_mpirun '')"
-  python3 - "$JOB_DIR" "$job_id" "$partition_input" "$partition" "$command" "$deadline" "$task_title" "$mode" "$prompt" "$runtime" "$project_root" "$mpi_mpicc" "$mpi_mpirun" <<'PY'
+  python3 - "$JOB_DIR" "$job_id" "$partition_name" "$partition_nodeset" "$command" "$deadline" "$task_title" "$mode" "$prompt" "$runtime" "$project_root" "$mpi_mpicc" "$mpi_mpirun" "$exec_scope" <<'PY'
 import json, sys
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+import importlib.util
 (job_dir, job_id, partition_name, partition_nodeset, command, deadline,
- task_title, mode, prompt, runtime, project_root, mpi_mpicc, mpi_mpirun) = sys.argv[1:14]
+ task_title, mode, prompt, runtime, project_root, mpi_mpicc, mpi_mpirun,
+ exec_scope) = sys.argv[1:15]
 deadline = int(deadline)
 now = datetime.now(timezone.utc)
 deadline_at = (now + timedelta(seconds=deadline)).strftime("%Y-%m-%dT%H:%M:%SZ")
+spec = importlib.util.spec_from_file_location(
+    "exec_scope", str(Path(project_root) / "scripts" / "exec_scope.py")
+)
+scope_mod = importlib.util.module_from_spec(spec)
+assert spec.loader
+spec.loader.exec_module(scope_mod)
+resolved_scope = scope_mod.resolve_exec_scope(exec_scope, command)
 data = {
     "job_id": job_id,
     "task_title": task_title or None,
     "partition": partition_name,
     "partition_nodeset": partition_nodeset,
+    "exec_scope": resolved_scope,
     "mode": mode,
     "command": command or None,
     "task_prompt": prompt or None,
@@ -105,19 +121,20 @@ if mode == "agent":
 - job_id: {job_id}
 - job_json: {job_dir}/{job_id}.json
 - partition: {partition_name} (nodeset: {partition_nodeset})
+- exec_scope: {resolved_scope}
 - deadline_utc: {deadline_at}
 
 ## Task
 {prompt}
 
 ## Execution rules
-1. Read the persisted job JSON above and trust its completed nodestatus-first preflight. Follow the installed `slave-agent` and skill contracts; do not repeat preflight or expand those rules.
+1. Read the persisted job JSON above and trust its completed nodestatus-first preflight (`nodestatus_snapshot`, `status_source`). Follow the installed `slave-agent` and skill contracts; do not repeat preflight or expand those rules.
 2. Map a known task to exactly one deterministic workflow and invoke the runner once:
    python3 {project_root}/scripts/workflows/workflow_runner.py run <workflow-id> --partition {partition_name} [--arg key=value] --timeout <remaining>
    Built-ins: `node-command`, `hostname-check`, `memory-monitor`, `fullcore-mpi`, `mpi-monitor`.
    For MPI rank CPU/RSS/IO monitoring, load the `mpi-monitor` skill only to extract typed arguments, then call `workflow_runner.py run mpi-monitor`; do not handcraft scripts or post-processing.
 3. On `outcome=success`, return its partition_report immediately and stop. On `outcome=exception`, diagnose once and retry only when `retry_allowed=true`.
-4. Node-status requests use the `nodestatus` skill and gateway-local socket. Respect persisted exclusions and the deadline.
+4. If the task is primarily about node health, status, freshness, reachability, probe, or exclusions, load the `nodestatus` skill and query the gateway-local socket. Respect persisted exclusions and the deadline.
 5. MPI paths: mpicc=`{mpi_mpicc}`, mpirun=`{mpi_mpirun}`.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
@@ -182,6 +199,7 @@ sys.path.insert(0, script_dir)
 from job_preflight import run_preflight
 from node_exclude import NodeExclusionStore
 from job_complete import remaining_seconds, write_done
+from exec_scope import exec_hosts, resolve_exec_scope
 path = f"{job_dir}/{job_id}.json"
 _local = socket.gethostname().split(".")[0].lower()
 
@@ -289,6 +307,9 @@ data = run_preflight(job_dir, job_id, ssh_timeout)
 partition_name = data.get("partition") or data.get("partition_nodeset", "")
 store = NodeExclusionStore(job_dir)
 hosts = expand(data["partition_nodeset"])
+scope = resolve_exec_scope(data.get("exec_scope") or "auto", data.get("command"))
+data["exec_scope"] = scope
+exec_targets = exec_hosts(scope, hosts, socket.gethostname().split(".")[0])
 fail = sum(
     1 for node in data.get("nodes", {}).values()
     if node.get("phase") == "preflight" and node.get("state") == "fail"
@@ -302,7 +323,7 @@ exec_ok = exec_fail = 0
 deadline_at = datetime.fromisoformat(data["deadline_at"].replace("Z", "+00:00"))
 exec_timeout = remaining_seconds(deadline_at)
 save(data)
-for host in hosts:
+for host in exec_targets:
     nstate = data["nodes"].get(host, {}).get("state")
     if nstate in ("fail", "excluded"):
         continue
@@ -341,10 +362,10 @@ for host in hosts:
         exec_fail += 1
     excluded_total = len(data.get("excluded_hosts", [])) + len(data.get("newly_excluded", []))
     data["progress"] = {
-        "total": len(hosts),
+        "total": len(exec_targets),
         "ok": exec_ok,
         "fail": exec_fail + fail,
-        "pending": len(hosts) - exec_ok - exec_fail - fail - excluded_total,
+        "pending": len(exec_targets) - exec_ok - exec_fail - fail - excluded_total,
         "excluded": excluded_total,
     }
     save(data)
@@ -390,6 +411,7 @@ if data.get("task_title"):
 lines.extend([
     "",
     f"- Gateway: {socket.gethostname().split('.')[0]}",
+    f"- Exec scope: {data.get('exec_scope', 'nodeset')}",
     f"- Status: {status}",
     f"- Reachable: {len(data.get('reachable_hosts', []))}/{total} — {', '.join(data.get('reachable_hosts', [])) or 'none'}",
     f"- Exec ok: {len(exec_ok_hosts)} — {', '.join(exec_ok_hosts) or 'none'}",
@@ -422,6 +444,7 @@ data["partition_report"] = {
     "gateway": socket.gethostname().split(".")[0],
     "partition": data.get("partition"),
     "partition_nodeset": data.get("partition_nodeset"),
+    "exec_scope": data.get("exec_scope"),
     "status": status,
     "reachable": data.get("reachable_hosts", []),
     "excluded": all_excluded,
