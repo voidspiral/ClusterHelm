@@ -15,12 +15,23 @@ POLL_WAIT = ROOT / "master/scripts/poll-wait.sh"
 SUBMIT = ROOT / "master/scripts/submit.sh"
 MASTER_CONF = ROOT / "master/config/master.conf"
 JOB_COMPLETE = ROOT / "slave/scripts/job_complete.py"
+JOB_EVENTS = ROOT / "slave/scripts/job_events.py"
 
 
 def load_job_complete():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("job_complete", JOB_COMPLETE)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_job_events():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("job_events", JOB_EVENTS)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader
     spec.loader.exec_module(module)
@@ -54,6 +65,57 @@ CONTRACT = """AGENT_STATUS: done
 ok
 ===PARTITION_REPORT_END===
 """
+
+
+class JobEventTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.job_dir = Path(self.tmp.name)
+        self.events = load_job_events()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_append_event_records_structured_monotonic_timeline(self):
+        path = self.events.append_event(
+            self.job_dir, "job-events", "accepted", state="ok", source="submit"
+        )
+        self.events.append_event(
+            self.job_dir, "job-events", "preflight", state="started"
+        )
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual([row["phase"] for row in rows], ["accepted", "preflight"])
+        self.assertEqual(rows[0]["source"], "submit")
+        self.assertTrue(all(row["job_id"] == "job-events" for row in rows))
+        self.assertLess(rows[0]["monotonic_ns"], rows[1]["monotonic_ns"])
+        self.assertTrue(all(row["at"].endswith("Z") for row in rows))
+
+    def test_concurrent_event_writes_are_complete_json_lines(self):
+        threads = []
+        for worker in range(8):
+            thread = threading.Thread(
+                target=lambda n=worker: [
+                    self.events.append_event(
+                        self.job_dir,
+                        "job-concurrent",
+                        "worker",
+                        state="progress",
+                        worker=n,
+                        index=index,
+                    )
+                    for index in range(10)
+                ]
+            )
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join()
+        path = self.job_dir / "job-concurrent.events.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual(len(rows), 80)
+        self.assertEqual(len({(row["worker"], row["index"]) for row in rows}), 80)
+        monotonic = [row["monotonic_ns"] for row in rows]
+        self.assertEqual(monotonic, sorted(monotonic))
 
 
 class WaitSignalTests(unittest.TestCase):

@@ -16,6 +16,7 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import incident_io  # noqa: E402
+import job_events  # noqa: E402
 
 TERMINAL = ("done", "partial", "failed")
 CONTRACT_BEGIN = "===PARTITION_REPORT_BEGIN==="
@@ -47,6 +48,13 @@ def write_done(job_dir, job_id: str, status: str) -> Path:
     tmp = path.with_suffix(".done.tmp")
     tmp.write_text(f"{status}\n")
     tmp.replace(path)
+    job_events.append_event(
+        job_dir,
+        job_id,
+        "terminal",
+        state=status,
+        source="job_complete",
+    )
     return path
 
 

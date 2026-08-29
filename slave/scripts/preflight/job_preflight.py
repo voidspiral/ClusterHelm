@@ -38,6 +38,8 @@ def expand(expr: str) -> list[str]:
 def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> dict:
     preflight_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(preflight_dir))
+    sys.path.insert(0, str(preflight_dir.parent))
+    from job_events import append_event
     from node_exclude import NodeExclusionStore
     from nodestatus_client import (
         is_excluded as status_is_excluded,
@@ -50,6 +52,7 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     path = job_dir / f"{job_id}.json"
     with open(path) as f:
         data = json.load(f)
+    append_event(job_dir, job_id, "preflight", state="started", source="job_preflight")
 
     _local = socket.gethostname().split(".")[0].lower()
     partition_name = data.get("partition") or data.get("partition_nodeset", "")
@@ -243,6 +246,16 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
         }
         save()
 
+    append_event(
+        job_dir,
+        job_id,
+        "preflight",
+        state="completed",
+        source="job_preflight",
+        reachable=len(reachable),
+        failed=fail,
+        excluded=data["progress"]["excluded"],
+    )
     return data
 
 

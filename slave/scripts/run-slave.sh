@@ -136,6 +136,8 @@ AGENT_STATUS: <done|partial|failed>
 print(job_id)
 PY
 
+  python3 "$script_dir/job_events.py" "$JOB_DIR" "$job_id" accepted ok \
+    --source run-slave
   if [[ "$mode" == "agent" ]]; then
     nohup "$0" _agent_worker --job-id "$job_id" > "$JOB_DIR/${job_id}.worker.log" 2>&1 &
   else
@@ -511,6 +513,8 @@ PY
   trap "python3 '$script_dir/job_complete.py' fail-signal '$JOB_DIR' '$job_id'" EXIT
 
   if [[ "$runtime" == "opencode" && -n "$opencode_bin" ]]; then
+    python3 "$script_dir/job_events.py" "$JOB_DIR" "$job_id" agent started \
+      --source run-slave --detail "runtime=\"$runtime\""
     (
       cd "$project_root"
       exec setsid timeout "$timeout_sec" "$opencode_bin" run --agent "$opencode_agent" --auto "$prompt"
