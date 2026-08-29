@@ -5,27 +5,26 @@
 
 ## 快速参考
 
-argv 数组 + `probe`，禁止 `"$MPI_MON"`：
+Slave 只提取类型化参数并调用一次确定性 workflow：
 
 ```bash
-VENDOR="${REMOTE_PROJECT:-/home/cn1/agents}/vendor/mpi-monitor"
-# 优先：MPI_MONITOR_VENDOR="$VENDOR" bash "$VENDOR/scripts/probe-cli.sh"
-argv=("$VENDOR/.venv/bin/mpi-monitor")
-"${argv[@]}" probe || exit 2
-"${argv[@]}" job-json   # {AGENT_JOB_DIR}/{id}.json，不要套目录
-"${argv[@]}" wrap --hosts cn1,cn2 --match is.S.x \
-  --output-dir "${AGENT_JOB_DIR:-/home/cn1/agents/var/agent-jobs}/mpi-monitor" \
-  --interval 0.1 -- mpirun -np 2 -hosts cn1,cn2 -wdir /tmp /path/to/is.S.x
+python3 scripts/workflows/workflow_runner.py run mpi-monitor \
+  --partition test \
+  --arg hosts=cn1,cn2 \
+  --arg executable=/path/to/is.S.x \
+  --arg ranks_per_node=1 \
+  --arg interval=0.1 \
+  --arg plot=true \
+  --arg raw_output=true
 ```
 
 - **部署**：Skill → `deploy-slave.sh`；CLI → `deploy-mpi-monitor.sh`（仅网关）
 - **作用域**：仅 Slave；Master 用 `submit.sh --prompt` 委托
 - **`--match`**：rank 的 comm / argv0（不要 `python3 -c "MARKER=…"`）
 - **入口**：`/proc/<pid>`；主命令 `wrap`
-- **快速路径**：禁止读包源码或重新选型；每个作业按输出契约一次生成脚本、一次
-  wrap、一次后处理、一次写报告
-- **任务自由度**：允许动态生成任意任务入口与产物，不固定文件名、语言或布局；
-  生成的任务入口放在 `mpi-monitor wrap ... --` 后，不能用 `pidstat` 替代监控后端
-- **大字段**：`plot_base64_png` 只写结构化 job JSON；markdown 仅写路径与大小
+- **快速路径**：禁止读包源码或重新选型；workflow 复用父 preflight，完成 probe、
+  一次 wrap、采集收尾、绘图与报告
+- **任务扩展**：新的任务入口和产物必须增加类型化 workflow 参数或实现，不按作业
+  动态生成编排脚本，也不能用 `pidstat` 替代监控后端
 - **异常处理**：保留已成功阶段，只重试失败阶段一次；wrap 成功后即使绘图或报告
   失败也禁止重跑 MPI，按完整度返回 `partial`

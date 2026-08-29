@@ -25,13 +25,12 @@ PEP 668 hosts must not use system `pip`). Optional PNG: `MPI_MONITOR_PLOT=1`.
 inline Python payload so remote nodes need `python3` and `/proc` only.
 `deploy-slave.sh` only syncs this skill text — it does not install the package.
 
-`mpi-monitor wrap` is a **gateway-local sidecar**, not a `workflow_runner.py`
-job and not `run-slave.sh --command` fan-out.
+`mpi-monitor wrap` is executed by the **gateway-local `mpi-monitor`
+deterministic workflow**, never by `run-slave.sh --command` fan-out.
 
-**Hard gate (before preflight or wrap):** probe the CLI on this gateway with a
-**bash argv array** (or `scripts/probe-cli.sh`) then `"${argv[@]}" probe`.
-If it is not installed, mark the job **failed** and **stop**. Do not preflight,
-wrap, `pip install`, SSH compute nodes, or invent series.
+The workflow owns the CLI hard gate, persisted preflight consumption, wrap,
+collection finalization, plotting, and report generation. The Slave must not
+repeat those actions outside the workflow.
 
 **Never** store a multi-word invocation in one string and quote it as a
 pathname (`MPI_MON="env PYTHONPATH=… python3 -m mpi_monitor"; "$MPI_MON"` →
@@ -50,32 +49,23 @@ pathname (`MPI_MON="env PYTHONPATH=… python3 -m mpi_monitor"; "$MPI_MON"` →
 Once this skill is selected, the monitoring design decision is already made.
 Follow this path without exploratory analysis:
 
-1. Do not debate whether to use `mpi-monitor` or replace it with a custom
-   sampler. Use one gateway-local `wrap`.
+1. Extract typed workflow arguments: executable, hosts or host count,
+   ranks-per-node, interval, plot, and raw-output.
 2. Treat this skill and [reference.md](reference.md) as the installed package
    contract. **Do not inspect the installed package source** to reconfirm CLI
    syntax, process discovery, stdout/stderr inheritance, paths, or JSONL fields.
-3. Resolve the CLI argv, run `probe`, consume the persisted nodestatus-first
-   preflight, and derive the exact `--hosts` intersection.
-4. **Generate fresh job-local orchestration and post-processing scripts** when
-   the task requests custom CSV columns, combined plots, raw output, summaries,
-   or base64. Regeneration is intentional. Generate each script once from the
-   requested output contract; do not reconsider the monitoring architecture.
-5. Capture the wrapped program's complete output by redirecting `wrap` stdout
-   and stderr. The wrapped command inherits those file descriptors; collector
-   diagnostics do not replace the program output.
-6. Run one wrap, one post-processing pass, and one report-finalization pass.
-   After success, inspect only `meta.json`, `series/`, `charts/`, and the
-   generated job artifacts. Do not reopen package source.
-7. For large binary artifacts, write `plot_base64_png` to the job JSON only.
-   Put its path, byte size, and base64 length in markdown; never spend a model
-   turn debating whether to inline the base64.
+3. Invoke `workflow_runner.py run mpi-monitor` exactly once with those
+   arguments. The workflow resolves and probes the CLI, reuses the parent
+   preflight, runs one wrap, and generates artifacts and report.
+4. If the runner succeeds, return its `partition_report` unchanged and stop.
+5. If it returns an exception, use only its reason code and preserved report;
+   never rerun a successful application.
 
 Expected happy-path sequence:
 
 ```text
-probe → persisted preflight → generate scripts once → wrap once
-      → post-process once → update partition_report once → stop
+extract typed args → workflow_runner mpi-monitor once
+                   → return partition_report unchanged → stop
 ```
 
 Only a real non-zero/usage failure may enter diagnosis, with the existing
@@ -83,26 +73,13 @@ one-retry limit. Commentary and extra validation are not separate steps.
 
 ## Fixed control plane, flexible task artifacts
 
-The Skill fixes the monitoring control plane, not the workload implementation.
-**Custom job artifacts and task entrypoints are allowed**, including generated
-loop logic, output collectors, CSV converters, combined plots, and report
-builders. The Slave chooses their language, structure, filename, and layout
-from the task; no particular artifact or script is required.
-
-If the Slave generates a workload entrypoint, it must **pass any generated task
-entrypoint as the command wrapped by `mpi-monitor`**:
-
-```bash
-"${argv[@]}" wrap --hosts "$HOSTS" --match "$RANK_BASENAME" \
-  --output-dir "$OUT" --interval "$INTERVAL" -- \
-  "$TASK_ENTRYPOINT" "${TASK_ARGS[@]}"
-```
-
-One wrap may surround an entrypoint that launches the same MPI benchmark
-repeatedly; the collectors discover each new matching rank PID. This freedom
-must not replace the selected monitoring backend with `pidstat`, `ps`, or an
-ad-hoc sampler. Those tools may be used only for targeted diagnosis after a
-real failure, never as the successful monitoring result.
+The deterministic workflow owns all happy-path artifacts: raw output,
+`meta.json`, JSONL series, PNG charts, resource summaries, and
+`partition_report`. The Slave must not generate orchestration or report
+scripts around it. New artifact shapes or workload entrypoints require an
+explicit typed workflow extension rather than per-job shell generation. Such
+extensions must not replace the selected monitoring backend with `pidstat`,
+`ps`, or an ad-hoc sampler.
 
 The final `partition_report` must provide backend evidence:
 
@@ -149,12 +126,14 @@ the failure.
 Gateway `$remote_project` is `/home/cn1/agents` (`master.conf`). Put run output
 under the job dir when `AGENT_JOB_DIR` is set.
 
-### CLI hard gate (mandatory, first)
+### CLI hard gate (workflow implementation reference)
 
 Installed means any one of: PATH `mpi-monitor`, the gateway venv binary, or
 `import mpi_monitor` via vendor `PYTHONPATH` / system site-packages.
 Missing matplotlib is **not** a failure (PNG is optional).
 Do **not** use `"${argv[@]}" --help` or `wrap --help` as the hard gate.
+The deterministic workflow performs this check; the Slave does not run these
+commands separately.
 
 Prefer the packaged gate if the vendor tree has it:
 
@@ -294,8 +273,9 @@ If the CLI hard gate fails, report **failed** and stop (no wrap output):
 - Remediation: install CLI on cn1 only (`pip install -e /path/to/mpi-monitor`); do not install on cn2–cnN
 ```
 
-After a successful wrap, synthesize `partition_report` from `meta.json` plus
-series/chart counts. Do not dump raw JSONL.
+After a successful wrap, the deterministic workflow synthesizes
+`partition_report` from `meta.json` plus series/chart counts. The Slave returns
+that report unchanged and does not dump raw JSONL.
 
 ```markdown
 # MPI process monitor: test
@@ -320,20 +300,12 @@ Name excluded/unreachable hosts in prose — they were not in `--hosts`.
 
 ## Job flow
 
-1. **CLI hard gate** on this gateway (argv array + `probe`, or `probe-cli.sh`).
-   Missing install → failed report, **stop**. No preflight, wrap, `pip install`,
-   or `--help`. Do not quote a multi-word CLI as one pathname.
-2. Preflight the owned partition (nodestatus → ping/SSH fallback). Do not wrap
-   on excluded or unreachable nodes.
-3. Build `--hosts` from reachable hosts ∩ the MPI host list in the task.
-   Never invent hostnames.
-4. On **this gateway**, run **one** `"${argv[@]}" wrap … -- CMD`.
-   Non-zero wrap writes `$CLUSTERHELM_INCIDENT_PATH` (job sidecar) for Master.
-5. Read `{output-dir}/{run_id}/meta.json`; list `series/` and `charts/`.
-   Job JSON path: `"${argv[@]}" job-json` (flat file, not nested).
-6. Write one `partition_report`. Wrap's exit code is the MPI/command status.
-   After a non-zero wrap: at most **one** targeted retry, then print the
-   report contract. Do not loop unbounded Hydra/SSH diagnosis.
+1. Extract typed arguments from the task.
+2. Run `workflow_runner.py run mpi-monitor` once.
+3. The workflow reuses parent preflight, probes the CLI, selects hosts, wraps
+   once, finalizes collection, plots, and creates one report.
+4. Return its report unchanged. Diagnose only a structured exception and
+   never rerun a successful application.
 
 Low-level debug (not the happy path): `collect` with an explicit `--stop-file`,
 or `plot --run-dir` after JSONL exists.
@@ -351,7 +323,7 @@ or `plot --run-dir` after JSONL exists.
 - Opening `{AGENT_JOB_DIR}/{job_id}/{job_id}.json` (extra directory)
 - `pip install` as recovery on this job, or on every compute node — gateway only; remotes use inline payload
 - Unbounded `collect` without `--stop-file` (no daemon, no forever loop)
-- Fan-out `collect` via `run-slave.sh --command` or `workflow_runner.py`
+- Fan-out `collect` via `run-slave.sh --command`
 - Skipping partition preflight / running on excluded nodes
 - Using this skill for node RAM/swap (that is `memory-monitor`)
 - Overlaying multiple PIDs on one PNG (the CLI writes one file per pid × metric)
@@ -371,9 +343,9 @@ Master does **not** load this skill. Delegate via agent-to-agent:
 
 ```bash
 ./scripts/submit.sh --partition test --prompt \
-  '在 test 分区用 mpi-monitor wrap 包装 MPI 作业：加载 mpi-monitor skill，preflight 后仅在可达节点上 wrap（--hosts 必填，--match 为 rank 二进制 comm/argv0）。采集 CPU/RSS/IO JSONL 与可选 PNG，按契约输出 partition report' \
+  '在 cn1、cn2 各运行 1 个 rank 执行 /path/is.S.x；加载 mpi-monitor，按标准 workflow 输出 CPU/RSS/IO 时序图和完整原始结果。只运行一次。' \
   --task mpi-monitor
 ```
 
-Slave probes the CLI first (`probe` / argv array); if missing, fails
-immediately. Otherwise one `mpi-monitor wrap` on the gateway after preflight.
+The deterministic workflow probes the CLI, reuses preflight, wraps once, and
+returns the complete report.

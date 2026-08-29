@@ -1,0 +1,33 @@
+{
+  "id": "mpi-monitor",
+  "title": "Wrap an MPI executable with deterministic process monitoring",
+  "match_hints": ["mpi-monitor", "MPI process CPU", "MPI RSS", "MPI IO", "MPI 时序"],
+  "arguments": {
+    "hosts": {"type": "string", "default": ""},
+    "host_count": {"type": "integer", "default": 2, "minimum": 1, "maximum": 1024},
+    "ranks_per_node": {"type": "integer", "default": 1, "minimum": 1, "maximum": 1024},
+    "executable": {"type": "string", "required": true, "min_length": 1},
+    "interval": {"type": "number", "default": 0.1, "minimum": 0.01, "maximum": 60},
+    "join_timeout": {"type": "number", "default": 15, "minimum": 3, "maximum": 300},
+    "plot": {"type": "boolean", "default": true},
+    "raw_output": {"type": "boolean", "default": true}
+  },
+  "implementation": {
+    "type": "gateway-sidecar",
+    "argv": [
+      "python3",
+      "{agent_root}/scripts/workflows/mpi_monitor_workflow.py",
+      "--partition", "{partition}",
+      "--hosts", "{hosts}",
+      "--host-count", "{host_count}",
+      "--ranks-per-node", "{ranks_per_node}",
+      "--executable", "{executable}",
+      "--interval", "{interval}",
+      "--join-timeout", "{join_timeout}",
+      "--plot", "{plot}",
+      "--raw-output", "{raw_output}"
+    ]
+  },
+  "success_policy": {"allow_exclusion_only_partial": false},
+  "max_attempts": 1
+}

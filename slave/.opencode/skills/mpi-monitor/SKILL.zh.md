@@ -24,12 +24,11 @@ PEP 668 主机禁止对系统 Python `pip install --user`）。
 下发 inline Python payload，远程节点只需 `python3` 与 `/proc`。
 `deploy-slave.sh` **只同步 Skill 文本**，不安装 Python 包。
 
-`mpi-monitor wrap` 是 **网关本地伴生监控**，不是 `workflow_runner.py`
-作业，也不是 `run-slave.sh --command` 分区扇出。
+`mpi-monitor wrap` 由**网关本地 `mpi-monitor` 确定性 workflow**执行，
+禁止通过 `run-slave.sh --command` 分区扇出。
 
-**硬门禁（preflight / wrap 之前）：** 用 **bash argv 数组**（或
-`scripts/probe-cli.sh`）再 `"${argv[@]}" probe`。未安装则作业 **failed** 并
-**立即停止**。禁止 preflight、wrap、`pip install`、SSH 计算节点或编造 series。
+workflow 负责 CLI 硬门禁、消费已持久化 preflight、wrap、采集收尾、绘图和报告。
+Slave 禁止在 workflow 外重复这些动作。
 
 **禁止** 把多词命令塞进一个字符串再当路径引用
 （`MPI_MON="env PYTHONPATH=… python3 -m mpi_monitor"; "$MPI_MON"` →
@@ -85,28 +84,21 @@ Master **禁止** SSH 到计算节点跑采集；须提交作业由 Slave 执行
 
 加载本 Skill 即表示监控方案已经确定。直接按下列路径执行，禁止探索式分析：
 
-1. 禁止讨论是否使用 `mpi-monitor` 或改成自定义采样器；固定在网关执行一次
-   `wrap`。
+1. 提取 workflow 类型化参数：可执行文件、hosts 或 host count、每节点 ranks、
+   interval、plot 和 raw-output。
 2. 将本 Skill 与 [reference.md](reference.md) 视为已安装包的接口契约。**禁止读取
    已安装包的源码**来重复确认 CLI 语法、进程发现、stdout/stderr 继承、路径或
    JSONL 字段。
-3. 解析 CLI argv、执行 `probe`、消费已持久化的 nodestatus-first preflight，
-   然后计算准确的 `--hosts` 交集。
-4. 当任务要求自定义 CSV、组合图、原始输出、汇总或 base64 时，**每个作业重新
-   生成作业级编排与后处理脚本**。重新生成属于预期设计；每个脚本按输出契约只
-   生成一次，禁止重新评估监控架构。
-5. 重定向 `wrap` 的 stdout/stderr 即可捕获被包装程序的完整输出；被包装命令继承
-   这些文件描述符，采集器诊断不会替代程序输出。
-6. 只执行一次 wrap、一次后处理和一次报告落盘。成功后只检查 `meta.json`、
-   `series/`、`charts/` 与本作业生成的产物，禁止回头读取包源码。
-7. 大型二进制产物的 `plot_base64_png` 只写入作业 JSON；markdown 仅写路径、
-   字节数和 base64 长度，禁止为“是否内联 base64”单独消耗模型轮次。
+3. 只调用一次 `workflow_runner.py run mpi-monitor` 并传入这些参数。workflow
+   自动解析并 probe CLI、复用父作业 preflight、执行一次 wrap 并生成产物和报告。
+4. runner 成功后原样返回其 `partition_report` 并停止。
+5. runner 返回异常时只使用 reason code 和已保留报告；禁止重跑成功的应用。
 
 预期主路径：
 
 ```text
-probe → 已持久化 preflight → 一次生成脚本 → 一次 wrap
-      → 一次后处理 → 一次更新 partition_report → 停止
+提取类型化参数 → workflow_runner mpi-monitor 一次
+             → 原样返回 partition_report → 停止
 ```
 
 只有真实的非零退出或 usage 错误才能进入诊断，并沿用至多一次重试限制。过程说明
@@ -116,21 +108,11 @@ probe → 已持久化 preflight → 一次生成脚本 → 一次 wrap
 
 ## 固定控制层，开放任务产物
 
-本 Skill 固定的是监控控制层，而不是任务实现。**允许生成自定义任务产物和任务
-入口**，包括循环逻辑、输出收集器、CSV 转换器、组合图和报告构建器。Slave 可
-根据任务自由选择语言、结构、文件名与布局，不要求存在任何特定脚本或产物。
-
-如果生成工作负载入口，**生成的任务入口必须作为 `mpi-monitor` 包装的命令**：
-
-```bash
-"${argv[@]}" wrap --hosts "$HOSTS" --match "$RANK_BASENAME" \
-  --output-dir "$OUT" --interval "$INTERVAL" -- \
-  "$TASK_ENTRYPOINT" "${TASK_ARGS[@]}"
-```
-
-一次 wrap 可以包住重复启动同一 MPI benchmark 的任务入口；采集器会发现每次
-新建的匹配 rank PID。这种自由度不得替换已经选定的监控后端，禁止用 `pidstat`、
-`ps` 或临时采样器产出成功结果。它们只能在真实失败后用于定向诊断。
+确定性 workflow 拥有正常路径的全部产物：原始输出、`meta.json`、JSONL、
+PNG、资源汇总和 `partition_report`。Slave 不得生成编排或报告脚本。新的产物
+形态或工作负载入口必须通过显式的类型化 workflow 扩展实现，不得按作业临时生成
+shell。这类扩展也不得替换已经选定的监控后端，禁止用 `pidstat`、`ps` 或临时
+采样器产出成功结果。
 
 最终 `partition_report` 必须提供后端证据：
 
@@ -172,12 +154,13 @@ probe → 已持久化 preflight → 一次生成脚本 → 一次 wrap
 
 ## 命令
 
-### CLI 硬门禁（必须最先执行）
+### CLI 硬门禁（workflow 实现参考）
 
 已安装 = PATH 上有 `mpi-monitor`，**或** 网关 venv 二进制存在，**或** 通过
 vendor `PYTHONPATH` / 系统 site-packages 能 `import mpi_monitor`。
 缺少 matplotlib **不算** 失败（PNG 可选）。
 硬门禁用 `"${argv[@]}" probe`，不要用 `--help`。
+该检查由确定性 workflow 执行，Slave 不单独运行以下命令。
 
 优先走打包脚本（若 vendor 树里有）：
 
@@ -290,7 +273,8 @@ CLI 硬门禁失败时报告 **failed** 并停止（没有 wrap 输出）：
 - Remediation: 仅在 cn1 安装 CLI（`pip install -e /path/to/mpi-monitor`）；不要装到 cn2–cnN
 ```
 
-wrap 成功后再根据 `meta.json` 与 series/charts 计数合成 `partition_report`，不要贴原始 JSONL。
+wrap 成功后，确定性 workflow 根据 `meta.json` 与 series/charts 计数合成
+`partition_report`；Slave 原样返回，不要贴原始 JSONL。
 
 ```markdown
 # MPI 进程监控: test
@@ -316,17 +300,11 @@ wrap 成功后再根据 `meta.json` 与 series/charts 计数合成 `partition_re
 
 ## 作业流
 
-1. **CLI 硬门禁**（argv 数组 + `probe`，或 `probe-cli.sh`）。未安装 → failed
-   报告，**停止**。禁止 preflight、wrap、`pip install` 或 `--help`。禁止把多词
-   CLI 当单路径引用。
-2. 对本分区做 preflight（nodestatus → ping/SSH）。排除/不可达节点不要 wrap。
-3. `--hosts` = 可达主机 ∩ 任务中的 MPI 主机列表。禁止编造主机名。
-4. 在 **本网关** 执行 **一次** `"${argv[@]}" wrap … -- CMD`。
-   wrap 非 0 时 CLI 写入 `$CLUSTERHELM_INCIDENT_PATH` 供 Master 立即可见。
-5. 读 `{output-dir}/{run_id}/meta.json`，列出 `series/` 与 `charts/`。
-   作业 JSON：`"${argv[@]}" job-json`（平铺文件，不要套目录）。
-6. 写一份 `partition_report`。wrap 退出码即 MPI/命令状态。
-   wrap 非 0 后至多 **一次** 定向重试，然后必须打印报告契约。禁止无界 Hydra/SSH 排障。
+1. 从任务提取类型化参数。
+2. 只执行一次 `workflow_runner.py run mpi-monitor`。
+3. workflow 复用父作业 preflight，probe CLI，选择节点，执行一次 wrap，完成
+   采集、绘图并生成一份报告。
+4. 原样返回报告。仅诊断结构化异常，禁止重跑成功的应用。
 
 ---
 
@@ -334,7 +312,7 @@ wrap 成功后再根据 `meta.json` 与 series/charts 计数合成 `partition_re
 
 ```bash
 ./scripts/submit.sh --partition test --prompt \
-  '在 test 分区用 mpi-monitor wrap 包装 MPI 作业：加载 mpi-monitor skill，preflight 后仅在可达节点上 wrap（--hosts 必填，--match 为 rank 二进制 comm/argv0）。采集 CPU/RSS/IO JSONL 与可选 PNG，按契约输出 partition report' \
+  '在 cn1、cn2 各运行 1 个 rank 执行 /path/is.S.x；加载 mpi-monitor，按标准 workflow 输出 CPU/RSS/IO 时序图和完整原始结果。只运行一次。' \
   --task mpi-monitor
 ```
 
@@ -351,7 +329,7 @@ wrap 成功后再根据 `meta.json` 与 series/charts 计数合成 `partition_re
 - 打开 `{AGENT_JOB_DIR}/{job_id}/{job_id}.json`（多套一层目录）
 - 在本作业里用 `pip install` 自救，或在每台计算节点上 pip——只装网关；远程用 inline payload
 - 没有 `--stop-file` 的无限 `collect`（不是常驻 daemon）
-- 用 `run-slave.sh --command` 或 `workflow_runner.py` 扇出 `collect`
+- 用 `run-slave.sh --command` 扇出 `collect`
 - 跳过分区 preflight，或在已排除节点上 wrap
 - 用本 Skill 查节点 RAM/swap（那是 `memory-monitor`）
 - 把多个 PID 叠在同一张 PNG 上（CLI 按 pid × 指标各写一文件）

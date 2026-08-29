@@ -17,12 +17,12 @@ class MpiMonitorSkillFastPathTests(unittest.TestCase):
         self.assertIn("## Deterministic fast path", self.english)
         self.assertIn("Do not inspect the installed package source", self.english_normalized)
         self.assertIn(
-            "Generate fresh job-local orchestration and post-processing scripts",
+            "Invoke `workflow_runner.py run mpi-monitor` exactly once",
             self.english_normalized,
         )
-        self.assertIn("Do not debate whether to use `mpi-monitor`", self.english_normalized)
+        self.assertIn("Extract typed workflow arguments", self.english_normalized)
         self.assertIn(
-            "write `plot_base64_png` to the job JSON only",
+            "return its `partition_report` unchanged",
             self.english_normalized,
         )
 
@@ -30,11 +30,11 @@ class MpiMonitorSkillFastPathTests(unittest.TestCase):
         self.assertIn("## 确定性快速路径", self.chinese)
         self.assertIn("禁止读取已安装包的源码", self.chinese_compact)
         self.assertIn(
-            "每个作业重新生成作业级编排与后处理脚本",
+            "只调用一次`workflow_runner.pyrunmpi-monitor`",
             self.chinese_compact,
         )
-        self.assertIn("禁止讨论是否使用`mpi-monitor`", self.chinese_compact)
-        self.assertIn("`plot_base64_png`只写入作业JSON", self.chinese_compact)
+        self.assertIn("提取workflow类型化参数", self.chinese_compact)
+        self.assertIn("原样返回其`partition_report`", self.chinese_compact)
 
     def test_fast_path_precedes_detailed_command_reference(self):
         self.assertLess(
@@ -77,14 +77,14 @@ class MpiMonitorSkillFastPathTests(unittest.TestCase):
             self.assertIn(f"`{reason_code}`", self.chinese)
         self.assertIn("只允许对失败阶段定向重试一次", self.chinese_compact)
 
-    def test_skill_fixes_control_plane_but_preserves_job_artifact_freedom(self):
+    def test_skill_delegates_artifacts_to_deterministic_workflow(self):
         self.assertIn("## Fixed control plane, flexible task artifacts", self.english)
         self.assertIn(
-            "Custom job artifacts and task entrypoints are allowed",
+            "The deterministic workflow owns all happy-path artifacts",
             self.english_normalized,
         )
         self.assertIn(
-            "pass any generated task entrypoint as the command wrapped by `mpi-monitor`",
+            "must not generate orchestration or report scripts",
             self.english_normalized,
         )
         self.assertIn(
@@ -93,11 +93,11 @@ class MpiMonitorSkillFastPathTests(unittest.TestCase):
         )
         self.assertNotIn("driver.sh", self.english)
 
-    def test_chinese_skill_preserves_job_artifact_freedom(self):
+    def test_chinese_skill_delegates_artifacts_to_workflow(self):
         self.assertIn("## 固定控制层，开放任务产物", self.chinese)
-        self.assertIn("允许生成自定义任务产物和任务入口", self.chinese_compact)
+        self.assertIn("确定性workflow拥有正常路径的全部产物", self.chinese_compact)
         self.assertIn(
-            "生成的任务入口必须作为`mpi-monitor`包装的命令",
+            "不得生成编排或报告脚本",
             self.chinese_compact,
         )
         self.assertIn("不得替换已经选定的监控后端", self.chinese_compact)

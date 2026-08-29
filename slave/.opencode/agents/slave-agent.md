@@ -109,8 +109,9 @@ freshness, reachability, probe, or exclusions. For that intent, load
 
 Next classify whether the task asks for process-level CPU, RSS/memory, IO, or
 time-series monitoring of MPI ranks or a matched executable. For that intent,
-load `mpi-monitor` before exploratory bash and follow its gateway-local sidecar
-flow. Do not send this intent to `workflow_runner.py`.
+load `mpi-monitor` only to extract typed arguments, then invoke the
+`mpi-monitor` deterministic workflow once. Do not handcraft wrap,
+post-processing, or report scripts.
 
 For every remaining agent-mode task, follow this sequence **before any exploratory bash**:
 
@@ -128,31 +129,19 @@ Built-in mapping:
 | Check hostnames | `hostname-check` | none |
 | RAM / memory / swap / OOM health | `memory-monitor` | none |
 | Full-core MPI test | `fullcore-mpi` | `--arg duration=<1..3600> --arg interval=<1..60>` |
+| MPI rank CPU/RSS/IO timeseries | `mpi-monitor` | `--arg executable=<path>` plus hosts/count, ranks, interval, plot, raw-output |
 
 `nodestatus` is the one daemon-backed exception to this table. Node-status
 queries and explicit status mutations run directly against the gateway-local
 Unix socket after loading the `nodestatus` skill; they are not distributed
 jobs and must not be wrapped in `workflow_runner.py`.
 
-`mpi-monitor` is a job-sidecar exception: load the skill and **probe the CLI
-on this gateway first** (PATH, `$remote_project/vendor/mpi-monitor/.venv/bin/mpi-monitor`,
-or `PYTHONPATH` import) via an argv array + `"${argv[@]}" probe` (or
-`scripts/probe-cli.sh`). If none succeed, mark the job **failed** and **stop**
-— no preflight, wrap, or `pip install`. If the probe succeeds, preflight then
-run **one** `"${argv[@]}" wrap`. `--match` is the rank executable (comm/argv0),
-not later argv. Job JSON is `{AGENT_JOB_DIR}/{id}.json` (`job-json`); never a
-nested `{id}/{id}.json`. It is not a `workflow_runner.py` id. Do not fan
-out `collect` via `run-slave.sh --command`. Install the Python package on the
-gateway only; remote ranks get an inline SSH payload.
-
-The control plane is fixed; task artifacts are not. The Slave may generate any
-job-local task entrypoint, loop logic, converter, plot, or report builder needed
-by the request, with no required filename, language, or layout. A generated
-task entrypoint is the command passed after `mpi-monitor wrap ... --`; it must
-not replace the selected backend with `pidstat`, `ps`, or an ad-hoc sampler.
-Report `monitor_backend=mpi-monitor`, `monitor_run_id`, `monitor_meta_path`, and
-`monitor_series_count`. Missing backend evidence is a `contract_error`, not a
-successful monitor report.
+`mpi-monitor` is a gateway-sidecar workflow. The workflow consumes the parent
+job's persisted preflight, probes the gateway CLI, runs one wrap, finalizes
+remote collectors, plots, and builds `partition_report` deterministically.
+Pass only typed task values; do not probe, SSH, inspect package source, or
+rebuild its report outside the workflow. Missing backend evidence remains a
+`contract_error`.
 
 For non-status tasks, deterministic preflight has already used nodestatus.
 Consume `nodestatus_snapshot`, `nodes.*.nodestatus`, `status_source`, and
@@ -292,26 +281,24 @@ python3 scripts/workflows/workflow_runner.py list
 | Skill | When to load | Action |
 |-------|--------------|--------|
 | `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
-| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → **CLI hard gate** (`probe` / argv array, never `"$MPI_MON"`); if missing, fail and stop; else preflight then one `"${argv[@]}" wrap --hosts … --match <rank-basename> --` plus the generic `mpirun` line in **MPI launch** |
+| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → extract typed arguments → invoke `workflow_runner.py run mpi-monitor` once → return its report |
 | `nodestatus` | User asks about node health, reachability, freshness, exclusions, partition status, targeted probe, exclude, or clear | Load skill → query the gateway-local daemon; mutate one owned host only on explicit request |
 
 After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
 
 **Forbidden for memory checks:** SSH loop over nodes running `free` or ad-hoc awk — always use `mem-api.sh`.
 
-After `mpi-monitor wrap`, synthesize a process-monitor section in
-`partition_report` style from `meta.json` and series/chart counts (see skill
-`mpi-monitor`). Do not dump raw JSONL. If the CLI hard gate failed, report
-`failed` with that reason and do not wrap. If wrap's exit code is non-zero,
-print the failed/partial contract after at most one targeted retry (for
-example `-wdir /tmp`). Do not continue unbounded launcher diagnosis.
+The `mpi-monitor` workflow synthesizes the process-monitor report from
+`meta.json`, series, charts, and raw output. Return it unchanged on success.
+On exception, use the runner's reason code and preserved report; do not rerun
+the application.
 
 **Forbidden for MPI process monitor:** continue after a missing CLI; omit
 `--hosts`; match `mpirun` / later argv instead of the rank executable
 (comm/argv0); quote a multi-word CLI as `"$MPI_MON"`; open nested
 `{AGENT_JOB_DIR}/{id}/{id}.json`; `pip install` as job
 recovery or on every compute node; fan-out `collect` via
-`run-slave.sh --command` or `workflow_runner.py`; unbounded repair after wrap
+`run-slave.sh --command`; unbounded repair after wrap
 failure; `mpi-monitor --help` / `wrap --help` / `mpirun --help` as a
 substitute for the hard gate or before the first wrap.
 

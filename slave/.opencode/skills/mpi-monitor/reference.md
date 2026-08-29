@@ -19,6 +19,8 @@ Missing matplotlib is not a hard-gate failure. Do not use `--help` as the gate.
   "started_at": "2026-08-25T02:06:07.707141+00:00",
   "ended_at": "2026-08-25T02:06:18.132723+00:00",
   "exit_code": 0,
+  "application_exit_code": 0,
+  "collection_status": "complete",
   "collect_errors": {}
 }
 ```
@@ -32,6 +34,8 @@ Missing matplotlib is not a hard-gate failure. Do not use `--help` as the gate.
 | `interval` | float | sample period; default `1.0` |
 | `started_at` / `ended_at` | string | UTC ISO-8601 |
 | `exit_code` | int | wrapped command status (`wrap` returns this) |
+| `application_exit_code` | int | explicit wrapped application status |
+| `collection_status` | string | `complete` or `partial`; independent of application status |
 | `collect_errors` | object | per-host start/fetch errors; `{}` if none |
 
 ## JSONL sample line
@@ -90,7 +94,7 @@ Never sampled even if `--match` also appears in cmdline:
 | Charts | `{run_dir}/charts/{run_id}_{host}_pid{pid}_{cpu\|rss\|io_read\|io_write}.png` |
 | Recommended output-dir | `$AGENT_JOB_DIR/mpi-monitor` or `/home/cn1/agents/var/agent-jobs/mpi-monitor` |
 | Job JSON (flat) | `{AGENT_JOB_DIR}/{AGENT_JOB_ID}.json` — print with `job-json` |
-| Job incident sidecar | `$CLUSTERHELM_INCIDENT_PATH` (`$AGENT_JOB_DIR/<job_id>.incident.json`); written when wrap exit ≠ 0 |
+| Job incident sidecar | `$CLUSTERHELM_INCIDENT_PATH` (`$AGENT_JOB_DIR/<job_id>.incident.json`); written on application or collection failure |
 | Gateway CLI tree | `/home/cn1/agents/vendor/mpi-monitor` (via `deploy-mpi-monitor.sh`) |
 | Gateway venv CLI | `/home/cn1/agents/vendor/mpi-monitor/.venv/bin/mpi-monitor` |
 | Probe script | `/home/cn1/agents/vendor/mpi-monitor/scripts/probe-cli.sh` |
@@ -115,17 +119,24 @@ fail wrap for plotting.
 
 `wrap` flags: `--hosts` (required), `--match`, `--output-dir`, `--interval`,
 `--ready-timeout` (default 30s; also the SSH start timeout), `--join-timeout`
-(default 5s), `--ssh-user`, `--ssh-identity`, then `--` and the command.
+(default 5s), `--ssh-user`, `--ssh-identity`, optional `--run-id`,
+`--plot` / `--no-plot`, then `--` and the command.
 
 Remote start command (implementation):
 
 ```text
-mkdir -p … && (setsid bash -c '<payload>' >/dev/null 2>collect.err </dev/null &) && echo OK
+mkdir -p … && (setsid bash -c '<payload>' >/dev/null 2>collect.err </dev/null & echo $! >collector.pid) && echo OK
 ```
 
 SSH uses `-T -n`. Do **not** use `nohup` for this cluster — it holds the
 session. After detach, SSH should return immediately; if SSH itself is slow
 (WSL proxy), raise `--ready-timeout`.
+
+Remote finalization uses one bounded SSH transaction per host: touch the stop
+file, wait briefly for `collector.pid`, tar `series/` plus `collect.err`, and
+return one base64 archive. Each host has an independent timeout and one bounded
+retry. A collection transport failure cannot prevent metadata finalization or
+change a successful application exit code.
 
 ## Stable wrap I/O contract
 
@@ -135,9 +146,8 @@ session. After detach, SSH should return immediately; if SSH itself is slow
 - Local collectors suppress their own stdout/stderr; remote collector errors
   are fetched as collector diagnostics. They do not replace wrapped-command
   output.
-- Custom CSV schemas, combined plots, aggregate summaries, and report-specific
-  base64 are job-local post-processing concerns. Generate those scripts once
-  per job from the JSONL contract above.
+- The ClusterHelm deterministic workflow owns standard summaries and reports.
+  New artifact forms require an explicit typed workflow extension.
 - Store large base64 fields directly in the structured job JSON. Human-readable
   markdown should contain the artifact path, byte size, and encoded length.
 
@@ -145,12 +155,12 @@ These are public behavioral guarantees. A Slave agent following the happy path
 must not inspect `wrap.py`, `cli.py`, `collect.py`, or `discover.py` to verify
 them again.
 
-## Backend evidence and generated task artifacts
+## Backend evidence and workflow-owned artifacts
 
-Generated job artifacts are unrestricted by this interface. A Slave may create
-any task entrypoint, repeated `mpirun` logic, converter, plot, or report builder
-with any suitable filename, language, and layout. The generated workload is
-passed after `wrap ... --`; it does not implement or replace process monitoring.
+The deterministic workflow owns happy-path task entry, conversion, plots, and
+report generation. The Slave does not generate per-job orchestration scripts.
+New workload shapes are added as typed workflow arguments or implementations;
+they do not implement or replace process monitoring.
 
 A successful report identifies the selected backend with
 `monitor_backend=mpi-monitor` and includes `monitor_run_id`,

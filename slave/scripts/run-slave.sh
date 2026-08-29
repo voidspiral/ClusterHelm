@@ -111,19 +111,14 @@ if mode == "agent":
 {prompt}
 
 ## Execution rules
-1. **FIRST — reuse nodestatus-first preflight:** before this agent starts, deterministic preflight queries nodestatus, probes stale/unknown hosts, and only then falls back to ping/SSH. Read `nodestatus_snapshot`, `reachable_hosts`, `excluded_hosts`, `nodes.*.status_source`, `nodes.*.status_fallback_reason`, and `nodes.*.nodestatus`. Report this provenance; do not describe legacy fallback as if nodestatus was never attempted.
-2. **NODE-STATUS INTENT EXCEPTION:** if the task is primarily about node health, status, freshness, reachability, probe, or exclusions, load the `nodestatus` skill and directly query the gateway-local Unix socket. Produce the node-status partition report and do not invoke `workflow_runner.py`.
-3. **MPI PROCESS-MONITOR INTENT EXCEPTION:** if the task asks for process-level CPU, RSS/memory, IO, or time-series monitoring of MPI ranks or a matched executable, load the `mpi-monitor` skill before exploratory bash and follow its gateway-local sidecar path; do not invoke `workflow_runner.py`. The control plane is fixed, but task artifacts remain flexible: Custom job artifacts and task entrypoints are allowed, with no required filename, language, or layout. If you generate an entrypoint, you must pass the generated task entrypoint as the wrapped command. You must not replace `mpi-monitor` with `pidstat`, `ps`, or an ad-hoc sampler. The final report must state `monitor_backend=mpi-monitor`, `monitor_run_id`, `monitor_meta_path`, and `monitor_series_count`; absence is a `contract_error`.
-4. For all remaining known tasks, trust the persisted availability result, operate only on verified non-excluded nodes, normalize the task to one built-in workflow, and invoke the runner exactly once:
+1. Read the persisted job JSON above and trust its completed nodestatus-first preflight. Follow the installed `slave-agent` and skill contracts; do not repeat preflight or expand those rules.
+2. Map a known task to exactly one deterministic workflow and invoke the runner once:
    python3 {project_root}/scripts/workflows/workflow_runner.py run <workflow-id> --partition {partition_name} [--arg key=value] --timeout <remaining>
-   Built-ins: `node-command`, `hostname-check`, `memory-monitor`, `fullcore-mpi`.
-5. If the runner returns `outcome=success`, immediately use its `partition_report.markdown` and stop. Do not inspect files, SSH nodes, poll, run preflight, or perform extra checks.
-6. Free-form diagnosis is allowed only when the runner returns `outcome=exception`. Diagnose once from its structured job/report context. If `retry_allowed=true`, make at most one targeted retry of the same workflow with `--attempt 2`; then report and stop.
-7. Direct `run-slave.sh` jobs and minimum implementation work are exception-only, for `workflow_missing` / `implementation_missing` or targeted diagnosis. Never silently clear exclusions or loop.
-8. Respect exclusions already recorded in job JSON. For explicit status/exclusion requests, follow the loaded `nodestatus` skill; never edit exclusion JSON directly.
-9. MPI environment (from config/slave.conf): `mpicc` at `{mpi_mpicc}`, `mpirun` at `{mpi_mpirun}` — use these for all MPI compilation and execution.
-10. You may update {job_dir}/{job_id}.json incrementally (progress, nodes), but the final report contract below is what Master consumes.
-11. Wrap / workflow_runner write `{job_dir}/{job_id}.incident.json` on failure (Master can poll it immediately). After the first wrap/workflow exception: at most one targeted retry, then print the report contract and stop. Do not loop unbounded diagnosis (Hydra, SSH, firewall). Missing the contract after an incident lets the wrapper finalize from the sidecar + log tail.
+   Built-ins: `node-command`, `hostname-check`, `memory-monitor`, `fullcore-mpi`, `mpi-monitor`.
+   For MPI rank CPU/RSS/IO monitoring, load the `mpi-monitor` skill only to extract typed arguments, then call `workflow_runner.py run mpi-monitor`; do not handcraft scripts or post-processing.
+3. On `outcome=success`, return its partition_report immediately and stop. On `outcome=exception`, diagnose once and retry only when `retry_allowed=true`.
+4. Node-status requests use the `nodestatus` skill and gateway-local socket. Respect persisted exclusions and the deadline.
+5. MPI paths: mpicc=`{mpi_mpicc}`, mpirun=`{mpi_mpirun}`.
 
 ## Required final output (contract with Master — print at the very end, exactly this shape)
 AGENT_STATUS: <done|partial|failed>
