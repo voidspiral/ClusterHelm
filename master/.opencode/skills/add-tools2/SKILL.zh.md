@@ -22,7 +22,7 @@ disable-model-invocation: true
 
 1. 在 **Master** 调用 `/add-tools2 <工具路径>` → 写入 `slave/` 下 skill 文件。
 2. 审阅生成物；若需 Slave 路由，更新 `slave/.opencode/agents/slave-agent.md` skills 表。
-3. 执行 `./scripts/deploy/deploy-slave.sh <gateway>`，将 `slave/.opencode/skills/*` 与 `.opencode/*` 同步到网关 `/home/smt/agents/`。
+3. 执行 `./scripts/deploy/deploy-slave.sh <gateway>`，将 `slave/.opencode/skills/*` 与 `.opencode/*` 同步到网关 `remote_project`（`master.conf`）。
 
 **禁止** 将 `add-tools2` 复制到 `slave/`。生成的 tool skill 放在 `master/.opencode/skills/`。
 
@@ -82,7 +82,7 @@ slave/.opencode/skills/<skill-name>/
 1. YAML frontmatter（`name`、`description` 第三人称 + 触发词）
 2. 标题 + 部署边界（Master / Slave、deploy 脚本）
 3. **When to use** / 何时使用
-4. **Commands** — 可复制的绝对路径（`/home/smt/agents/...`）
+4. **Commands** — 相对网关 `remote_project`（`master.conf`）的路径
 5. **Reading output** — JSON/字段表
 6. **Reporting to user** — 分区任务需含 `partition_report` 示例
 7. **Job flow** — 高层封装 vs 底层调试命令

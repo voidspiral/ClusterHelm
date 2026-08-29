@@ -68,7 +68,7 @@
        cn1 Slave
          │ preflight + exec → cn[1-10]（Master 不参与）
          ▼
-       /home/smt/agents/var/agent-jobs/<job_id>.json（在网关上）
+       $remote_project/var/agent-jobs/<job_id>.json（在网关上）
          ▲
           │ poll-wait.sh → SSH → run-slave.sh wait（阻塞至终态，然后读 JSON）
        Master → 用户

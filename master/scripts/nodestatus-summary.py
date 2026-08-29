@@ -11,6 +11,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def load_kv_conf(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            values[parts[0]] = parts[1]
+    return values
+
+
 def load_slaves(path: Path) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for raw in path.read_text().splitlines():
@@ -22,10 +34,14 @@ def load_slaves(path: Path) -> list[tuple[str, str]]:
 
 
 def query(
-    ssh_bin: str, gateway: str, partition: str, timeout: int
+    ssh_bin: str,
+    gateway: str,
+    partition: str,
+    timeout: int,
+    nodestatus_bin: str,
 ) -> tuple[str, dict | None, str | None]:
     remote = (
-        "/home/smt/agents/bin/nodestatus summary "
+        f"{shlex.quote(nodestatus_bin)} summary "
         f"--partition {shlex.quote(partition)} "
         "--socket /run/nodestatus/nodestatus.sock -o json"
     )
@@ -55,16 +71,26 @@ def main() -> None:
     parser.add_argument(
         "--slaves-conf", type=Path, default=root / "master/config/slaves.conf"
     )
+    parser.add_argument(
+        "--master-conf", type=Path, default=root / "master/config/master.conf"
+    )
     parser.add_argument("--ssh-bin", default="ssh")
     parser.add_argument("--timeout", type=int, default=10)
     args = parser.parse_args()
+
+    remote_project = load_kv_conf(args.master_conf).get("remote_project", "").strip()
+    if not remote_project:
+        raise SystemExit(f"ERROR: set remote_project in {args.master_conf}")
+    nodestatus_bin = f"{remote_project}/bin/nodestatus"
 
     rows = load_slaves(args.slaves_conf)
     partitions: dict[str, dict] = {}
     failures: list[dict[str, str]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(rows))) as pool:
         futures = [
-            pool.submit(query, args.ssh_bin, gateway, partition, args.timeout)
+            pool.submit(
+                query, args.ssh_bin, gateway, partition, args.timeout, nodestatus_bin
+            )
             for gateway, partition in rows
         ]
         for future in concurrent.futures.as_completed(futures):

@@ -78,7 +78,7 @@ Do **not** mix generated tool skills with the **meta skill** (`add-tools2`). Do 
 1. YAML frontmatter — `name`, `description` (third person, WHAT + WHEN trigger terms)
 2. Title + deployment boundary (Master vs Slave, deploy scripts)
 3. **When to use** — bullet triggers
-4. **Commands** — copy-paste absolute paths under `/home/smt/agents/`
+4. **Commands** — copy-paste paths relative to gateway `remote_project` (`master.conf`)
 5. **Reading output** — tables for JSON/fields
 6. **Reporting to user** — `partition_report` markdown example if partition-scoped
 7. **Job flow** — high-level wrapper vs low-level debug commands

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+MASTER_CONF="$ROOT/master/config/master.conf"
 SLAVES_CONF="$ROOT/master/config/slaves.conf"
 SLAVE_CONF="$ROOT/slave/config/slave.conf"
 PARTITION=""
@@ -32,6 +33,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$PARTITION" && "$BATCH_SIZE" =~ ^[1-9][0-9]*$ ]] || usage
+REMOTE_PROJECT="$(
+  awk '{ sub(/\r$/, "") } $1 == "remote_project" { print $2; exit }' "$MASTER_CONF" 2>/dev/null || true
+)"
+[[ -n "$REMOTE_PROJECT" ]] || {
+  echo "ERROR: set remote_project in $MASTER_CONF" >&2
+  exit 1
+}
+NODESTATUS_BIN="$REMOTE_PROJECT/bin/nodestatus"
 read -r GATEWAY _ NODESET < <(
   awk -v partition="$PARTITION" '$2 == partition {print $1, $2, $3; exit}' "$SLAVES_CONF"
 )
@@ -76,13 +85,13 @@ jitter 5s
 key_id current
 auth_key_file /etc/nodestatus/partition.key
 EOF
-cat >"$tmp_dir/nodestatus-agent.service" <<'EOF'
+cat >"$tmp_dir/nodestatus-agent.service" <<EOF
 [Unit]
 Description=nodestatus node agent
 After=network-online.target
 
 [Service]
-ExecStart=/home/smt/agents/bin/nodestatus serve --role node --config /etc/nodestatus/agent.conf
+ExecStart=${NODESTATUS_BIN} serve --role node --config /etc/nodestatus/agent.conf
 Restart=on-failure
 
 [Install]
@@ -98,19 +107,19 @@ run_host() {
   case "$ACTION" in
     verify)
       ssh -o ConnectTimeout=10 "$host" \
-        "systemctl is-active --quiet nodestatus-agent.service && /home/smt/agents/bin/nodestatus --version"
+        "systemctl is-active --quiet nodestatus-agent.service && $(printf %q "$NODESTATUS_BIN") --version"
       ;;
     uninstall)
       ssh -o ConnectTimeout=10 "$host" \
         "sudo systemctl disable --now nodestatus-agent.service 2>/dev/null || true;
-         sudo rm -f /etc/systemd/system/nodestatus-agent.service /etc/nodestatus/agent.conf /etc/nodestatus/partition.key /home/smt/agents/bin/nodestatus;
+         sudo rm -f /etc/systemd/system/nodestatus-agent.service /etc/nodestatus/agent.conf /etc/nodestatus/partition.key $(printf %q "$NODESTATUS_BIN");
          sudo systemctl daemon-reload"
       ;;
     install)
       scp -o ConnectTimeout=10 "$BINARY" "$tmp_dir/agent.conf" \
         "$tmp_dir/nodestatus-agent.service" "$KEY_FILE" "$host:/tmp/"
       ssh -o ConnectTimeout=10 "$host" \
-        "sudo install -D -m 0755 '/tmp/$(basename "$BINARY")' /home/smt/agents/bin/nodestatus &&
+        "sudo install -D -m 0755 '/tmp/$(basename "$BINARY")' $(printf %q "$NODESTATUS_BIN") &&
          sudo install -D -m 0644 /tmp/agent.conf /etc/nodestatus/agent.conf &&
          sudo install -D -m 0600 '/tmp/$(basename "$KEY_FILE")' /etc/nodestatus/partition.key &&
          sudo install -m 0644 /tmp/nodestatus-agent.service /etc/systemd/system/nodestatus-agent.service &&

@@ -12,9 +12,30 @@ import sys
 from pathlib import Path
 from typing import Any
 
+_SCRIPTS = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+import job_events  # noqa: E402
+
 
 class ArgumentError(ValueError):
     pass
+
+
+def _emit_workflow_event(workflow_id: str, state: str, **details: Any) -> None:
+    job_dir = os.environ.get("AGENT_JOB_DIR")
+    job_id = os.environ.get("AGENT_JOB_ID")
+    if not job_dir or not job_id:
+        return
+    job_events.append_event(
+        job_dir,
+        job_id,
+        "workflow",
+        state=state,
+        source="workflow_runner",
+        workflow_id=workflow_id,
+        **details,
+    )
 
 
 def load_catalog(workflow_dir: Path) -> dict[str, dict[str, Any]]:
@@ -78,6 +99,15 @@ def validate_arguments(
                 raise ArgumentError(f"{name} must be >= {rule['minimum']}")
             if "maximum" in rule and value > int(rule["maximum"]):
                 raise ArgumentError(f"{name} must be <= {rule['maximum']}")
+        elif arg_type == "number":
+            try:
+                value = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ArgumentError(f"{name} must be a number") from exc
+            if "minimum" in rule and value < float(rule["minimum"]):
+                raise ArgumentError(f"{name} must be >= {rule['minimum']}")
+            if "maximum" in rule and value > float(rule["maximum"]):
+                raise ArgumentError(f"{name} must be <= {rule['maximum']}")
         elif arg_type == "string":
             value = str(raw)
             if len(value) < int(rule.get("min_length", 0)):
@@ -135,6 +165,31 @@ def _layout(agent_root: Path) -> dict[str, Path]:
     }
 
 
+def _record_runner_incident(result: dict[str, Any]) -> None:
+    scripts = Path(__file__).resolve().parents[1]
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import incident_io  # noqa: WPS433
+
+    job = result.get("job") or {}
+    detail = result.get("message") or ""
+    report = result.get("partition_report") or {}
+    markdown = report.get("markdown") or ""
+    if markdown:
+        detail = f"{detail}\n{markdown}"[-2000:]
+    incident_io.write_incident_from_env(
+        {
+            "step": "workflow",
+            "hosts": list(job.get("reachable_hosts") or job.get("exec_fail") or []),
+            "exit_code": 1,
+            "command": [result.get("workflow_id") or "workflow"],
+            "detail_tail": detail,
+            "source": "workflow_runner",
+            "reason_code": result.get("reason_code"),
+        }
+    )
+
+
 def _exception(
     workflow_id: str,
     reason_code: str,
@@ -145,7 +200,7 @@ def _exception(
     job: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = (job or {}).get("partition_report") or {}
-    return {
+    result = {
         "workflow_id": workflow_id,
         "outcome": "exception",
         "reason_code": reason_code,
@@ -158,6 +213,9 @@ def _exception(
         "job": job or {},
         "partition_report": report,
     }
+    _record_runner_incident(result)
+    _emit_workflow_event(workflow_id, "failed", reason_code=reason_code)
+    return result
 
 
 def _submit_and_wait(
@@ -333,6 +391,54 @@ def _run_gateway_script(
     return job
 
 
+def _format_context_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _run_gateway_sidecar(
+    workflow: dict[str, Any],
+    partition: str,
+    arguments: dict[str, Any],
+    timeout: int,
+    layout: dict[str, Path],
+) -> dict[str, Any]:
+    context = {
+        **{key: str(value) for key, value in layout.items()},
+        **{key: _format_context_value(value) for key, value in arguments.items()},
+        "partition": partition,
+    }
+    argv = [
+        str(token).format(**context)
+        for token in workflow["implementation"].get("argv", [])
+    ]
+    if not argv:
+        raise FileNotFoundError("gateway-sidecar workflow has no argv")
+    script = Path(argv[1]) if len(argv) > 1 and "/" in argv[1] else None
+    if script is not None and not script.exists():
+        raise FileNotFoundError(str(script))
+    completed = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=os.environ.copy(),
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"gateway sidecar failed ({completed.returncode}): "
+            f"{(completed.stderr or completed.stdout).strip()[-2000:]}"
+        )
+    try:
+        job = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("gateway sidecar returned invalid JSON") from exc
+    if not isinstance(job, dict):
+        raise RuntimeError("gateway sidecar result must be a JSON object")
+    return job
+
+
 def run_workflow(
     *,
     workflow_id: str,
@@ -365,6 +471,7 @@ def run_workflow(
             workflow_id, "invalid_arguments", attempt, max_attempts, str(exc)
         )
 
+    _emit_workflow_event(workflow_id, "started", attempt=attempt)
     try:
         implementation_type = workflow.get("implementation", {}).get("type")
         if implementation_type == "per-node-command":
@@ -378,6 +485,10 @@ def run_workflow(
             )
         elif implementation_type == "gateway-script":
             job = _run_gateway_script(
+                workflow, partition, arguments, timeout, layout
+            )
+        elif implementation_type == "gateway-sidecar":
+            job = _run_gateway_sidecar(
                 workflow, partition, arguments, timeout, layout
             )
         else:
@@ -413,7 +524,7 @@ def run_workflow(
         _format_memory_report(job)
     outcome, reason_code = classify_job(job, workflow)
     report = job.get("partition_report") or {}
-    return {
+    result = {
         "workflow_id": workflow_id,
         "arguments": arguments,
         "outcome": outcome,
@@ -425,6 +536,12 @@ def run_workflow(
         "job": job,
         "partition_report": report,
     }
+    if outcome == "exception":
+        _record_runner_incident(result)
+        _emit_workflow_event(workflow_id, "failed", reason_code=reason_code)
+    else:
+        _emit_workflow_event(workflow_id, "completed", status=job.get("status"))
+    return result
 
 
 def _default_agent_root() -> Path:

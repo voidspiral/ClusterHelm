@@ -11,6 +11,9 @@ else
   ROOT="$MASTER_ROOT"
 fi
 CONFIG="$MASTER_ROOT/config/master.conf"
+# shellcheck source=ssh-transport.sh
+CLUSTERHELM_MASTER_CONF="$CONFIG"
+source "$SCRIPT_DIR/ssh-transport.sh"
 GATEWAY=""
 JOB_ID=""
 TIMEOUT=""
@@ -49,24 +52,22 @@ WAIT_SLACK="$(read_master_default wait_slack 30)"
 if [[ "$TIMEOUT_SET" -eq 0 ]]; then
   TIMEOUT=$((DEFAULT_DEADLINE + WAIT_SLACK))
 fi
-REMOTE_PROJECT="$(read_master_default remote_project /home/smt/agents)"
-REMOTE_SCRIPT="${REMOTE_PROJECT}/scripts/run-slave.sh"
-SSH_ALIVE="$(read_master_default ssh_server_alive_interval 30)"
-SSH_ALIVE_MAX="$(read_master_default ssh_server_alive_count_max 3)"
+REMOTE_PROJECT="$(read_master_default remote_project "")"
+[[ -n "$REMOTE_PROJECT" ]] || { echo "ERROR: set remote_project in $CONFIG" >&2; exit 1; }
+REMOTE_RUN_SLAVE="$(read_master_default remote_run_slave scripts/run-slave.sh)"
+REMOTE_SCRIPT="${REMOTE_PROJECT}/${REMOTE_RUN_SLAVE}"
+VAR_JOBS="${CLUSTERHELM_VAR_ROOT:-$ROOT/var}/agent-jobs"
 
 # Single SSH call: gateway blocks until completion signal (or safety timeout)
-out=$(ssh -o ConnectTimeout="$(read_master_default ssh_connect_timeout 15)" \
-  -o ServerAliveInterval="$SSH_ALIVE" \
-  -o ServerAliveCountMax="$SSH_ALIVE_MAX" \
-  -o BatchMode=yes "$GATEWAY" \
-  "bash '$REMOTE_SCRIPT' wait --job-id $(printf %q "$JOB_ID") --timeout $TIMEOUT" 2>&1) || {
+out=$(clusterhelm_ssh "$GATEWAY" \
+  "bash $(printf %q "$REMOTE_SCRIPT") wait --job-id $(printf %q "$JOB_ID") --timeout $TIMEOUT") || {
   echo "ERROR: wait on $GATEWAY failed: $out" >&2
   exit 1
 }
 
 echo "$out"
-mkdir -p "$ROOT/var/agent-jobs"
-echo "$out" > "$ROOT/var/agent-jobs/${JOB_ID}.last.json"
+mkdir -p "$VAR_JOBS"
+echo "$out" > "$VAR_JOBS/${JOB_ID}.last.json"
 
 # Parse status for exit code
 status=$(echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")

@@ -8,10 +8,10 @@ permission:
   external_directory:
     "/proc/**": allow  
     "/tmp/**": allow  
-    "/home/smt/**": allow  
     "/etc/**": allow  
   skill:
     memory-monitor: allow
+    mpi-monitor: allow
     nodestatus: allow
 ---
 
@@ -35,6 +35,59 @@ Implications:
 - MPI and partition-wide jobs: launch from this gateway when appropriate, but **always allocate slots on cn1** like any other node.
 - Per-node `--command` from the worker runs on cn1 too; use `$(hostname -s)` or local-only branches only when the command must run once cluster-wide (e.g. single `mpirun` launcher).
 
+## MPI launch (MPICH Hydra)
+
+Use `/usr/bin/mpirun` (or `$MPIRUN`). Launch **once from this gateway**.
+`--hosts` / `-hosts` is a comma-separated list: reachable ∩ owned partition ∩
+the task's MPI host list. Do not invent hostnames. `-ppn` is optional.
+
+This partition has **no shared filesystem**. Hydra sends the launcher **cwd**
+to every rank as `-wdir`. Gateway paths such as `$remote_project` (for example
+`/home/cn1/agents`) do not exist on cn2+. Always pass **`-wdir /tmp`** (or
+another directory that exists on every host). Omitting it from the agent cwd
+yields Hydra `assert (!closed)` / exit 255.
+
+```bash
+mpirun -np <nprocs> -ppn <ppn> -hosts <h1>,<h2> -wdir /tmp \
+  <rank-binary>
+```
+
+Hostfile form:
+
+```bash
+printf '%s\n' <h1> <h2> > /tmp/hfile
+mpirun -np <nprocs> -ppn <ppn> -f /tmp/hfile -wdir /tmp \
+  <rank-binary>
+```
+
+Short binaries (sub-second): loop the **same** rank binary so `mpi-monitor`
+can sample. `mpi-monitor wrap --hosts <h1>,<h2> --match <rank-basename> --`
+then the same `mpirun` line (keep `-wdir /tmp`). If `mpirun`/wrap exits 255,
+retry **once** with `-wdir /tmp`; do not loop launcher diagnosis.
+
+## CLI --help
+
+Do **not** run `--help` / `-h` to confirm flags when this file, a loaded
+skill, or the Master prompt already gives the command line.
+
+Hard gates must use PATH, a venv binary, or `import` — never
+`$CLI --help` as a liveness check. For `mpi-monitor`, resolve an **argv
+array** and run `"${argv[@]}" probe` (or vendor `scripts/probe-cli.sh`).
+Never quote a multi-word CLI as one pathname
+(`MPI_MON="env PYTHONPATH=… python3 -m mpi_monitor"; "$MPI_MON"`).
+
+**Allowed --help** only when one of:
+
+- The real command already failed with a usage / unknown-option error
+  (this counts as the single diagnosis; then one retry, then the report).
+- The task explicitly asks for CLI usage.
+- The tool is not documented here or in a loaded skill, so the first
+  invocation cannot be constructed.
+
+**Forbidden before the first real wrap/mpirun:**
+`mpi-monitor --help`, `mpi-monitor wrap --help`, `mpirun --help`,
+`mpiexec --help`, and piping those to `head`.
+
 ## Configuration
 
 | File | Purpose |
@@ -42,8 +95,10 @@ Implications:
 | `config/partitions.conf` | Logical partition → nodeset (deployed from Master SoT) |
 | `config/slave.conf` | Exclusion policy, agent CLI, MPI paths |
 
+Working directory is the gateway project root (`remote_project` in Master's `master.conf`). Use relative paths (`config/`, `scripts/`).
+
 ```bash
-cat /home/smt/agents/config/partitions.conf
+cat config/partitions.conf
 ```
 
 ## Mandatory workflow state machine
@@ -52,7 +107,13 @@ First classify whether the task is primarily about node health, status,
 freshness, reachability, probe, or exclusions. For that intent, load
 `nodestatus` and follow its direct Unix-socket flow.
 
-For every other agent-mode task, follow this sequence **before any exploratory bash**:
+Next classify whether the task asks for process-level CPU, RSS/memory, IO, or
+time-series monitoring of MPI ranks or a matched executable. For that intent,
+load `mpi-monitor` only to extract typed arguments, then invoke the
+`mpi-monitor` deterministic workflow once. Do not handcraft wrap,
+post-processing, or report scripts.
+
+For every remaining agent-mode task, follow this sequence **before any exploratory bash**:
 
 1. **Normalize once** — map the request to exactly one workflow id and typed arguments.
 2. **Run once** — invoke `workflow_runner.py run` exactly once.
@@ -68,11 +129,19 @@ Built-in mapping:
 | Check hostnames | `hostname-check` | none |
 | RAM / memory / swap / OOM health | `memory-monitor` | none |
 | Full-core MPI test | `fullcore-mpi` | `--arg duration=<1..3600> --arg interval=<1..60>` |
+| MPI rank CPU/RSS/IO timeseries | `mpi-monitor` | `--arg executable=<path>` plus hosts/count, ranks, interval, plot, raw-output |
 
 `nodestatus` is the one daemon-backed exception to this table. Node-status
 queries and explicit status mutations run directly against the gateway-local
 Unix socket after loading the `nodestatus` skill; they are not distributed
 jobs and must not be wrapped in `workflow_runner.py`.
+
+`mpi-monitor` is a gateway-sidecar workflow. The workflow consumes the parent
+job's persisted preflight, probes the gateway CLI, runs one wrap, finalizes
+remote collectors, plots, and builds `partition_report` deterministically.
+Pass only typed task values; do not probe, SSH, inspect package source, or
+rebuild its report outside the workflow. Missing backend evidence remains a
+`contract_error`.
 
 For non-status tasks, deterministic preflight has already used nodestatus.
 Consume `nodestatus_snapshot`, `nodes.*.nodestatus`, `status_source`, and
@@ -82,7 +151,7 @@ that the skill was used.
 One-call happy-path command:
 
 ```bash
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py run <workflow-id> \
+python3 scripts/workflows/workflow_runner.py run <workflow-id> \
   --partition <partition> [--arg key=value] --timeout <remaining-seconds>
 ```
 
@@ -95,6 +164,8 @@ The runner performs deterministic submit, blocking wait, validation, exception c
 Free-form tool use is allowed only for `workflow_missing`, `implementation_missing`, `invalid_arguments` that cannot be corrected from the task, `execution_error`, `timeout`, or `contract_error`.
 
 Use the returned `job`, failed hosts, report text, and `reason_code`; do not repeat broad collection already performed by the runner. Diagnose once. If a safe targeted retry is justified and `retry_allowed` is true, run the **same workflow** once with `--attempt 2`. After attempt 2, report the remaining error and stop.
+
+`mpi-monitor wrap` and `workflow_runner.py` write `$CLUSTERHELM_INCIDENT_PATH` (`<job_id>.incident.json`) on failure. That sidecar is merged into job JSON while you are still running — do not skip the final report contract. After the first wrap/workflow exception: at most **one** targeted retry, then print `AGENT_STATUS` + `PARTITION_REPORT_*` and stop. Unbounded Hydra/SSH/firewall loops are forbidden.
 
 For missing workflows/implementations, create only the minimum deterministic implementation needed for the request, execute it once, and recommend promoting it into `slave/workflows/`. Never silently clear exclusions or perform unbounded repair loops.
 
@@ -129,8 +200,8 @@ nodestatus daemon. `$AGENT_JOB_DIR/node-exclusions.json` remains the rollback
 projection. Use the compatibility CLI for routine operations:
 
 ```bash
-python3 /home/smt/agents/scripts/preflight/node_exclude.py list --partition test
-python3 /home/smt/agents/scripts/preflight/node_exclude.py clear --partition test --host cn5
+python3 scripts/preflight/node_exclude.py list --partition test
+python3 scripts/preflight/node_exclude.py clear --partition test --host cn5
 ```
 
 When a user explicitly asks for direct status management, load the
@@ -199,10 +270,10 @@ The wrapper parses these markers into `partition_report` in the job JSON — Mas
 ## Entrypoints
 
 ```bash
-/home/smt/agents/scripts/run-slave.sh submit --partition test --command '<cmd>'    # script mode
-/home/smt/agents/scripts/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
-/home/smt/agents/scripts/run-slave.sh poll --job-id <job_id>
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py list
+scripts/run-slave.sh submit --partition test --command '<cmd>'    # script mode
+scripts/run-slave.sh submit --partition test --prompt '<task>'   # agent mode (launches this agent)
+scripts/run-slave.sh poll --job-id <job_id>
+python3 scripts/workflows/workflow_runner.py list
 ```
 
 ## Skills
@@ -210,11 +281,26 @@ python3 /home/smt/agents/scripts/workflows/workflow_runner.py list
 | Skill | When to load | Action |
 |-------|--------------|--------|
 | `memory-monitor` | User asks about RAM, memory, swap, OOM risk, or partition memory health | Load skill → run `mem-api.sh local` (this host) or `mem-api.sh partition test` (full partition) |
+| `mpi-monitor` | User asks to wrap MPI/task PIDs, sample rank CPU/RSS/IO, JSONL timeseries, or per-process PNG charts | Load skill → extract typed arguments → invoke `workflow_runner.py run mpi-monitor` once → return its report |
 | `nodestatus` | User asks about node health, reachability, freshness, exclusions, partition status, targeted probe, exclude, or clear | Load skill → query the gateway-local daemon; mutate one owned host only on explicit request |
 
 After `mem-api.sh partition`, synthesize a memory table report in `partition_report` style (see skill `memory-monitor`).
 
 **Forbidden for memory checks:** SSH loop over nodes running `free` or ad-hoc awk — always use `mem-api.sh`.
+
+The `mpi-monitor` workflow synthesizes the process-monitor report from
+`meta.json`, series, charts, and raw output. Return it unchanged on success.
+On exception, use the runner's reason code and preserved report; do not rerun
+the application.
+
+**Forbidden for MPI process monitor:** continue after a missing CLI; omit
+`--hosts`; match `mpirun` / later argv instead of the rank executable
+(comm/argv0); quote a multi-word CLI as `"$MPI_MON"`; open nested
+`{AGENT_JOB_DIR}/{id}/{id}.json`; `pip install` as job
+recovery or on every compute node; fan-out `collect` via
+`run-slave.sh --command`; unbounded repair after wrap
+failure; `mpi-monitor --help` / `wrap --help` / `mpirun --help` as a
+substitute for the hard gate or before the first wrap.
 
 After a nodestatus query, synthesize one node-status section in
 `partition_report` style. Do not dump raw JSON without state, freshness,
@@ -232,6 +318,8 @@ calls, or exclude/clear without an explicit request and reason.
 - Skipping the workflow match/run sequence for a known task
 - Exploratory bash, per-node SSH, direct polling, or extra checks after workflow success
 - More than one diagnosis or more than one targeted retry
+- Unbounded launcher diagnosis after wrap/workflow failure (print the report contract instead)
+- `--help` / `-h` on a documented CLI before the first real invocation (see **CLI --help**)
 - Executing user tasks before partition node availability is confirmed
 - Leaving Master to assemble partition status from scattered `nodes.*`
 - Executing without preflight

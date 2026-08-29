@@ -21,7 +21,7 @@ if [[ -x "$ROOT/scripts/run-slave.sh" ]]; then
 elif [[ -x "$ROOT/slave/scripts/run-slave.sh" ]]; then
   RUN_SLAVE="$ROOT/slave/scripts/run-slave.sh"
 else
-  RUN_SLAVE="${AGENT_HOME:-/home/smt/agents}/scripts/run-slave.sh"
+  RUN_SLAVE="${AGENT_HOME:-$ROOT}/scripts/run-slave.sh"
 fi
 POLL_INTERVAL=2
 POLL_MAX_ROUNDS=60

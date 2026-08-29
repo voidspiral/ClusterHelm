@@ -9,7 +9,7 @@
 | 角色 | 职责 |
 |------|------|
 | **Slave（分区 Agent）** | 预检、执行、生成 **`partition_report`** |
-| **Master（你）** | `submit.sh --prompt` → `poll-wait.sh` → **把 `partition_report.markdown` 呈现给用户** |
+| **Master（你）** | `submit.sh --prompt`（默认 `--follow` 同一 SSH 等待）→ 呈现 `partition_report.markdown` |
 
 ## Agent-to-agent（默认 — 始终使用）
 
@@ -36,16 +36,16 @@
 
 - **任何涉及计算节点、MPI、集群执行的任务，必须通过 `submit.sh` 交给 Slave** — 即使未显式指定分区（默认 `test`）。
 - **禁止 Master 直接 SSH 或本地执行分区节点上的命令。** 所有节点级操作属于 Slave agent。
-- **未指明分区时，默认使用 `--partition test`。**
+- **未指明分区时，默认使用 `--partition test`。** 不要用 `--partition cn1` 避免 MPI 扇出；script 模式的 `mpirun` 走 `exec_scope=gateway`。Master SSH 经 `ssh-transport.sh` 复用 ControlMaster。单任务默认 `--follow`；并行任务必须 `--no-follow` 再 `poll-wait.sh`。
 
 ## 并行任务（多分区独立作业）
 
 用户请求包含多个独立分区任务时，一次性提交所有任务，然后并行等待：
 
 ```bash
-# 提交所有独立任务
-OUT_A=$(./master/scripts/submit.sh --partition test --prompt 'task A' --task job-a)
-OUT_B=$(./master/scripts/submit.sh --partition dev --prompt 'task B' --task job-b)
+# 提交所有独立任务（并行必须 --no-follow）
+OUT_A=$(./master/scripts/submit.sh --no-follow --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./master/scripts/submit.sh --no-follow --partition dev --prompt 'task B' --task job-b)
 JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')
 JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 
@@ -122,7 +122,7 @@ python3 -c "import json; d=json.load(open('var/agent-jobs/<id>.last.json')); pri
 ## 汇报（关键）
 
 - **主报告：** 粘贴或转述 Slave 的 `partition_report.markdown`
-- **进行中：** `partition_report.summary_line` 或 JSON `progress` + `summary_line`
+- **进行中：** `poll.sh` 若有 `summary` / `failures[]` / `agent_progress`（wrap 或 workflow 失败 sidecar），立即转述，不必等 `partition_report`。`poll-wait.sh` 仍阻塞到终态。
 - **禁止**在已有 `partition_report` 时自己遍历 `nodes.*` 拼总结
 
 ## 禁止

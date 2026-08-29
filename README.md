@@ -58,7 +58,7 @@ Run Master OpenCode from `master/` (that directory is the OpenCode project root)
 | Script | Target | What it installs |
 |--------|--------|------------------|
 | `deploy-master.sh [HOST\|local]` | Master (default: this workspace) | OpenCode agent + `opencode.json`, `submit.sh` / `poll-wait.sh` / `master.conf` |
-| `deploy-slave.sh <gateway>` | Slave gateway (e.g. `cn1`) | OpenCode agents/skills + `opencode.json`, `run-slave.sh` / `slave.conf`, `/home/smt/agents/var/agent-jobs/` |
+| `deploy-slave.sh <gateway>` | Slave gateway (e.g. `cn1`) | OpenCode agents/skills + `opencode.json`, `run-slave.sh` / `slave.conf`, `$remote_project/var/agent-jobs/` (`master.conf`) |
 | `deploy-all.sh <gateway> [master-host]` | Both | Runs `deploy-master.sh` then `deploy-slave.sh` |
 
 ```bash

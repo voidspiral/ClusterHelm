@@ -8,14 +8,14 @@ description: >-
 
 # 内存监控（Slave 网关）
 
-本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `/home/smt/agents/.opencode/skills/memory-monitor/`。  
+本 Skill **仅部署在 Slave 网关**（如 cn1），经 `deploy-slave.sh` 同步到 `.opencode/skills/memory-monitor/`。  
 确定性监控实现（`memmon.py`、`mem-api.sh`）随 workflow runner 一起部署。
 **Master 工作区不加载本 Skill**；Master 通过 `submit.sh` / `poll-wait.sh` 委托 Slave 执行。
 
 Agent 模式必须使用一次固定调用：
 
 ```bash
-python3 /home/smt/agents/scripts/workflows/workflow_runner.py run memory-monitor \
+python3 scripts/workflows/workflow_runner.py run memory-monitor \
   --partition test --timeout <剩余秒数>
 ```
 
@@ -71,7 +71,7 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 ### 本机（仅当前节点）
 
 ```bash
-/home/smt/agents/scripts/monitor/mem-api.sh local
+scripts/monitor/mem-api.sh local
 ```
 
 返回当前节点单行 JSON（网关 cn1 同时是计算节点）。
@@ -79,13 +79,13 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 ### 整个分区
 
 ```bash
-/home/smt/agents/scripts/monitor/mem-api.sh partition test
+scripts/monitor/mem-api.sh partition test
 ```
 
 仅检查子集：
 
 ```bash
-/home/smt/agents/scripts/monitor/mem-api.sh partition test --subset cn[1-3]
+scripts/monitor/mem-api.sh partition test --subset cn[1-3]
 ```
 
 内部流程：`run-slave.sh submit`，`--command` 为 `$(python3 memmon.py --remote-cmd)` 的输出 → 对各可达、未排除节点执行 → 轮询至终态 → 聚合 JSON。
@@ -191,11 +191,11 @@ Master **禁止** SSH 到计算节点查内存；须提交作业由 Slave 执行
 底层等价（仅调试）：
 
 ```bash
-/home/smt/agents/scripts/run-slave.sh submit \
+scripts/run-slave.sh submit \
   --partition test \
-  --command "$(python3 /home/smt/agents/scripts/monitor/memmon.py --remote-cmd)" \
+  --command "$(python3 scripts/monitor/memmon.py --remote-cmd)" \
   --task memory-monitor
-/home/smt/agents/scripts/run-slave.sh poll --job-id <job_id>
+scripts/run-slave.sh poll --job-id <job_id>
 ```
 
 ---

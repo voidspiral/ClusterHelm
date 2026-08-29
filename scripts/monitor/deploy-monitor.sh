@@ -10,7 +10,10 @@ REMOTE_PROJECT="$(
   awk '{ sub(/\r$/, "") } $1 == "remote_project" { print $2; exit }' "$MASTER_CONF" 2>/dev/null \
     || true
 )"
-REMOTE_PROJECT="${REMOTE_PROJECT:-/home/smt/agents}"
+[[ -n "$REMOTE_PROJECT" ]] || {
+  echo "ERROR: set remote_project in $MASTER_CONF" >&2
+  exit 1
+}
 
 echo "== Deploy memory monitor to $GATEWAY =="
 

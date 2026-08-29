@@ -31,8 +31,8 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 | Step | Command | Notes |
 |------|---------|-------|
 | **1. Preflight** | `./scripts/list-slaves.py --partition test` | Confirms gateway (`cn1` for `test`). Read `partitions.conf` + `slaves.conf` when config is unclear. |
-| **2. Submit** | `./scripts/submit.sh --partition test --prompt '<task>' [--task TITLE]` | Default: agent-to-agent. `--command` only if user explicitly wants script mode. |
-| **3. Poll** | `./scripts/poll-wait.sh --job-id <job_id>` | **Single blocking call** — SSH to gateway, blocks until `done|partial|failed`. No loop, no intermediate LLM. |
+| **2. Submit** | `./scripts/submit.sh --partition test --prompt '<task>' [--task TITLE]` | Default: agent-to-agent, `--follow` (same SSH waits). `--command` only if user explicitly wants script mode. `--no-follow` for parallel jobs. |
+| **3. Poll** | `./scripts/poll-wait.sh --job-id <job_id>` | Needed after `--no-follow`. After default `--follow`, this is a cheap mux fetch of terminal JSON. No loop, no intermediate LLM. |
 | **4. Report** | Read `partition_report.markdown` from poll JSON | Also show submit command, `--prompt` text, and any Slave exec paths. |
 
 **Step rules:**
@@ -48,11 +48,11 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 |------|---------|
 | `config/partitions.conf` | Logical partition → nodeset (`test` → `cn[1-10]`) |
 | `config/slaves.conf` | Gateway registry (`cn1` owns `test`) |
-| `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, timeouts, poll backoff |
-| `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`) |
-| `scripts/poll-wait.sh` | Master → gateway **blocking** poll (single SSH, returns at terminal). Writes `var/agent-jobs/<id>.last.json`. |
+| `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, `remote_project` (gateway deploy root), timeouts |
+| `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`). Default `--follow` waits on the same SSH connection. Use `--no-follow` for parallel jobs. |
+| `scripts/poll-wait.sh` | Master → gateway **blocking** poll (reuses ControlMaster). Writes `var/agent-jobs/<id>.last.json`. |
 
-Submit always uses logical partition name (`test`), not raw gateway host, unless user intentionally targets a subset.
+Submit always uses logical partition name (`test`), not raw gateway host, unless user intentionally targets a subset. Do not use `--partition cn1` to avoid MPI fan-out; script-mode `mpirun` uses `exec_scope=gateway`. Master SSH reuses `ControlMaster` via `ssh-transport.sh`.
 
 ### Example TODO + commands (fullcore MPI on test)
 
@@ -112,6 +112,39 @@ Write the `--prompt` as a **task brief for the Slave agent** (intent + constrain
 
 Runtime on gateway: `slave.conf: agent_opencode_bin`; override per job with `--runtime`.
 
+## Prompt minimization contract (mandatory)
+
+The Master `--prompt` is a **task delta**, not a restatement of the Slave
+agent, skill, or runtime contracts.
+
+- Include only the task intent, target scope, concrete parameters, and
+  genuinely user-specific acceptance criteria.
+- For a known skill, name it once and say to follow its standard contract.
+  Do not enumerate its standard probe, execution, artifact, report, retry, or
+  failure rules.
+- Do not repeat rules already injected by `run-slave.sh`, including preflight
+  provenance, exclusions, one-run behavior, backend bans, incident handling,
+  or `partition_report` fields.
+- Do not translate the request into a long implementation plan. The Slave
+  chooses commands and task-local artifacts under its own contract.
+- Default budget: at most 300 Chinese characters or 120 English words. Exceed
+  it only when non-standard user requirements cannot be expressed within the
+  budget.
+- Before submitting, remove any clause that does not change the Slave's
+  behavior for this specific job.
+
+Preferred:
+
+```bash
+./scripts/submit.sh --partition test --prompt \
+  '在 cn1、cn2 各运行 1 个 rank 执行 /path/is.S.x；加载 mpi-monitor，按标准契约输出完整原始结果和时序图。只运行一次。'
+```
+
+Forbidden prompt expansion: listing every standard JSONL/CSV/PNG artifact,
+every `partition_report` field, generic preflight mechanics, backend
+prohibitions, and retry policy when the selected skill/runtime already defines
+them.
+
 ## Script mode (exception only)
 
 Use `--command` **only** when the user **explicitly** asks for script/deterministic mode, or a fixed one-liner with zero judgment:
@@ -127,9 +160,9 @@ This bypasses the Slave agent LLM and runs `run-slave.sh _worker` directly. **Do
 When the user request contains **multiple independent partition tasks**, submit all at once and wait concurrently:
 
 ```bash
-# Step 2: Submit all independent jobs in parallel
-OUT_A=$(./scripts/submit.sh --partition test --prompt 'task A' --task job-a)
-OUT_B=$(./scripts/submit.sh --partition dev --prompt 'task B' --task job-b)
+# Step 2: Submit all independent jobs in parallel (must disable follow)
+OUT_A=$(./scripts/submit.sh --no-follow --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./scripts/submit.sh --no-follow --partition dev --prompt 'task B' --task job-b)
 
 # Extract job IDs
 JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')
@@ -220,6 +253,7 @@ owning Slave agent.
 ## Reporting to user (critical)
 
 - **Primary:** paste or paraphrase `partition_report.markdown` from Slave
+- **In progress:** if `poll.sh` JSON has `summary`, `failures[]`, or `agent_progress`, present those immediately (wrap/workflow incident sidecar). Do not wait for `partition_report`. `poll-wait.sh` still blocks until terminal.
 - **Do not** manually loop `nodes.cn1`, `nodes.cn2`, … to build your own summary — that is Slave's job
 
 | Meta skill | Path | When |

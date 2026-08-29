@@ -7,7 +7,7 @@
 
 ```
 /add-tools2 scripts/monitor
-/add-tools2 /home/smt/trans-tools --name trans-tools
+/add-tools2 /home/cn1/trans-tools --name trans-tools
 ```
 
 ## Master 加载路径

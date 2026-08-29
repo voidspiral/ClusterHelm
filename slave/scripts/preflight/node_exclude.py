@@ -334,7 +334,10 @@ class NodeExclusionStore:
 
 
 def _job_dir() -> Path:
-    return Path(os.environ.get("AGENT_JOB_DIR", "/home/smt/agents/var/agent-jobs"))
+    env = os.environ.get("AGENT_JOB_DIR")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2] / "var" / "agent-jobs"
 
 
 def main() -> None:

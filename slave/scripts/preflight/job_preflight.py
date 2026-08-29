@@ -38,6 +38,8 @@ def expand(expr: str) -> list[str]:
 def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> dict:
     preflight_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(preflight_dir))
+    sys.path.insert(0, str(preflight_dir.parent))
+    from job_events import append_event
     from node_exclude import NodeExclusionStore
     from nodestatus_client import (
         is_excluded as status_is_excluded,
@@ -50,9 +52,26 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
     path = job_dir / f"{job_id}.json"
     with open(path) as f:
         data = json.load(f)
+    append_event(job_dir, job_id, "preflight", state="started", source="job_preflight")
 
     _local = socket.gethostname().split(".")[0].lower()
     partition_name = data.get("partition") or data.get("partition_nodeset", "")
+    try:
+        described = json.loads(
+            subprocess.check_output(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve().parents[1] / "resolve-partition.py"),
+                    partition_name,
+                    "--json",
+                ],
+                text=True,
+                timeout=10,
+            )
+        )
+        partition_name = described.get("partition") or partition_name
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError):
+        pass
     store = NodeExclusionStore(job_dir)
     hosts = expand(data["partition_nodeset"])
     status_nodes, status_metadata, query_attempt = query_partition_detailed(
@@ -85,6 +104,7 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
         "probe_result": probe_attempt["result"],
         "probe_error": probe_attempt["error"],
         "fallback_hosts": [],
+        "status_partition": partition_name,
     })
     data["nodestatus_snapshot"] = status_snapshot
 
@@ -243,6 +263,16 @@ def run_preflight(job_dir: str | Path, job_id: str, ssh_timeout: int = 60) -> di
         }
         save()
 
+    append_event(
+        job_dir,
+        job_id,
+        "preflight",
+        state="completed",
+        source="job_preflight",
+        reachable=len(reachable),
+        failed=fail,
+        excluded=data["progress"]["excluded"],
+    )
     return data
 
 

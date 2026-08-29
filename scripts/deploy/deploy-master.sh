@@ -5,8 +5,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MASTER_DIR="$ROOT/master"
+MASTER_CONF="$MASTER_DIR/config/master.conf"
 TARGET="${1:-local}"
-REMOTE_PROJECT="/home/smt/agents"
+
+read_master_default() {
+  local key="$1" fallback="$2"
+  if [[ -f "$MASTER_CONF" ]]; then
+    local v
+    v=$(awk -v key="$key" '{ sub(/\r$/, "") } $1 == key { print $2; exit }' "$MASTER_CONF")
+    [[ -n "$v" ]] && { echo "$v"; return; }
+  fi
+  echo "$fallback"
+}
+
+REMOTE_PROJECT="$(read_master_default remote_project "")"
 
 usage() {
   echo "Usage: $0 [HOST|local]" >&2
@@ -54,7 +66,11 @@ deploy_local() {
 
 deploy_remote() {
   local host="$1"
-  echo "== Deploy master agent to $host =="
+  [[ -n "$REMOTE_PROJECT" ]] || {
+    echo "ERROR: set remote_project in $MASTER_CONF" >&2
+    exit 1
+  }
+  echo "== Deploy master agent to $host ($REMOTE_PROJECT) =="
 
   ssh -o ConnectTimeout=15 "$host" \
     "mkdir -p '$REMOTE_PROJECT/.opencode/agents' \

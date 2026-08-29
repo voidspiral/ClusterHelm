@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -26,7 +27,13 @@ class WorkflowCatalogTests(unittest.TestCase):
     def test_catalog_contains_builtin_workflows(self):
         catalog = self.runner.load_catalog(ROOT / "slave/workflows")
         self.assertEqual(
-            {"node-command", "hostname-check", "memory-monitor", "fullcore-mpi"},
+            {
+                "node-command",
+                "hostname-check",
+                "memory-monitor",
+                "fullcore-mpi",
+                "mpi-monitor",
+            },
             set(catalog),
         )
 
@@ -52,6 +59,21 @@ class WorkflowCatalogTests(unittest.TestCase):
             workflow, ["duration=60", "interval=2"]
         )
         self.assertEqual({"duration": 60, "interval": 2}, args)
+        mpi = self.runner.load_catalog(ROOT / "slave/workflows")["mpi-monitor"]
+        mpi_args = self.runner.validate_arguments(
+            mpi,
+            [
+                "hosts=cn1,cn2",
+                "executable=/opt/npb/is.S.x",
+                "interval=0.1",
+            ],
+        )
+        self.assertEqual(0.1, mpi_args["interval"])
+        with self.assertRaises(self.runner.ArgumentError):
+            self.runner.validate_arguments(
+                mpi,
+                ["hosts=cn1,cn2", "executable=/opt/npb/is.S.x", "interval=0"],
+            )
 
     def test_retry_budget_is_enforced_before_execution(self):
         result = self.runner.run_workflow(
@@ -91,6 +113,31 @@ class WorkflowCatalogTests(unittest.TestCase):
             )
         self.assertEqual("exception", result["outcome"])
         self.assertEqual("implementation_missing", result["reason_code"])
+
+    def test_exception_writes_incident_sidecar_when_env_set(self):
+        with tempfile.TemporaryDirectory() as temp:
+            inc = Path(temp) / "job.incident.json"
+            previous = os.environ.get("CLUSTERHELM_INCIDENT_PATH")
+            os.environ["CLUSTERHELM_INCIDENT_PATH"] = str(inc)
+            try:
+                result = self.runner.run_workflow(
+                    workflow_id="missing",
+                    partition="test",
+                    raw_args=[],
+                    attempt=1,
+                    timeout=30,
+                    agent_root=ROOT / "slave",
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("CLUSTERHELM_INCIDENT_PATH", None)
+                else:
+                    os.environ["CLUSTERHELM_INCIDENT_PATH"] = previous
+            self.assertEqual("exception", result["outcome"])
+            data = json.loads(inc.read_text())
+            self.assertEqual(data["step"], "workflow")
+            self.assertEqual(data["source"], "workflow_runner")
+            self.assertEqual(data["reason_code"], "workflow_missing")
 
 
 class ClassificationTests(unittest.TestCase):
@@ -170,6 +217,37 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual("# deterministic", result["partition_report"]["markdown"])
         self.assertEqual(2, run.call_count)
         self.assertIn("wait", run.call_args_list[1].args[0])
+
+    @mock.patch("subprocess.run")
+    def test_mpi_monitor_uses_one_gateway_sidecar_call(self, run):
+        job = {
+            "job_id": "job-parent",
+            "status": "done",
+            "summary": "mpi monitor done",
+            "partition_report": {"markdown": "# mpi monitor", "exec_fail": []},
+        }
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, json.dumps(job), ""
+        )
+        result = self.runner.run_workflow(
+            workflow_id="mpi-monitor",
+            partition="test",
+            raw_args=[
+                "hosts=cn1,cn2",
+                "executable=/opt/npb/is.S.x",
+                "ranks_per_node=1",
+                "interval=0.1",
+                "plot=true",
+            ],
+            attempt=1,
+            timeout=30,
+            agent_root=ROOT / "slave",
+        )
+        self.assertEqual("success", result["outcome"])
+        self.assertEqual(1, run.call_count)
+        argv = run.call_args.args[0]
+        self.assertIn("mpi_monitor_workflow.py", " ".join(argv))
+        self.assertNotIn("run-slave.sh", " ".join(argv))
 
     @mock.patch("subprocess.run")
     def test_timeout_is_structured_and_does_not_drop_context(self, run):

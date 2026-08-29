@@ -47,7 +47,7 @@ docs/zh/config.md                    # 配置文件说明
 | 脚本 | 目标 | 安装内容 |
 |------|------|----------|
 | `deploy-master.sh [HOST\|local]` | Master（默认本工作区） | OpenCode agent + `opencode.json`，`submit.sh` / `poll-wait.sh` / `master.conf` |
-| `deploy-slave.sh <gateway>` | Slave 网关（如 `cn1`） | OpenCode agents/skills + `opencode.json`，`run-slave.sh` / `slave.conf`，`/home/smt/agents/var/agent-jobs/` |
+| `deploy-slave.sh <gateway>` | Slave 网关（如 `cn1`） | OpenCode agents/skills + `opencode.json`，`run-slave.sh` / `slave.conf`，`$remote_project/var/agent-jobs/`（`master.conf`） |
 | `deploy-all.sh <gateway> [master-host]` | 两端一起 | 依次执行 `deploy-master.sh` 和 `deploy-slave.sh` |
 
 ```bash
@@ -79,8 +79,8 @@ docs/zh/config.md                    # 配置文件说明
 ```
 
 `deploy-slave.sh` 额外安装：
-- `/home/smt/agents/.opencode/skills/`（Slave 侧 tool skills，如 `memory-monitor`）
-- `/home/smt/agents/var/agent-jobs/` 任务目录
+- `$remote_project/.opencode/skills/`（Slave 侧 tool skills，如 `memory-monitor`）
+- `$remote_project/var/agent-jobs/` 任务目录
 
 内存监控脚本（`memmon.py`、`mem-api.sh`）由 **`deploy-monitor.sh`** 单独部署，不属于 Slave agent 本体。
 

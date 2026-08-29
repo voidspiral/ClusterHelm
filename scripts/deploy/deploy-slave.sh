@@ -40,7 +40,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Deploy root on the gateway: master.conf remote_project (same key submit/poll-wait use).
-REMOTE_PROJECT="${REMOTE_PROJECT_OVERRIDE:-$(read_master_default remote_project /home/smt/agents)}"
+if [[ -n "$REMOTE_PROJECT_OVERRIDE" ]]; then
+  REMOTE_PROJECT="$REMOTE_PROJECT_OVERRIDE"
+else
+  REMOTE_PROJECT="$(read_master_default remote_project "")"
+fi
+[[ -n "$REMOTE_PROJECT" ]] || {
+  echo "ERROR: set remote_project in $MASTER_CONF" >&2
+  exit 1
+}
 REMOTE_JOB_DIR="$REMOTE_PROJECT/var/agent-jobs"
 
 if [[ "$PRINT_CONFIG" -eq 1 ]]; then
