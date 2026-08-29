@@ -184,7 +184,7 @@ sequenceDiagram
 
 | 模式 | 参数 | 网关执行者 | 适用场景 |
 |------|------|------------|----------|
-| **Script** | `--command '<cmd>'` | `_worker`（确定性） | 命令明确；快路径 |
+| **Script** | `--command '<cmd>'` | `_worker`（确定性） | 命令明确；快路径。MPI/`mpirun` 使用 `exec_scope=gateway`（网关执行一次），不要用 `--partition cn1` 绕行 |
 | **Agent** | `--prompt '<task>'` | Slave agent LLM | 需判断、诊断、多步骤 |
 
 两种模式产出相同的 `partition_report`；Master 汇报流程一致。
@@ -199,7 +199,7 @@ Agent 模式仍启动一次 Slave LLM 来理解任务，但已知操作不再允
                                   └─ exception：诊断一次，最多定向重试一次
 ```
 
-runner 负责确定性的 submit、阻塞 wait、结果校验、异常分类和报告聚合。内置 `node-command`、`hostname-check`、`memory-monitor`、`fullcore-mpi`。稳定异常码包括 `workflow_missing`、`invalid_arguments`、`implementation_missing`、`execution_error`、`timeout`、`contract_error`。
+runner 负责确定性的 submit、阻塞 wait、结果校验、异常分类和报告聚合。内置 `node-command`、`hostname-check`、`memory-monitor`、`fullcore-mpi`、`mpi-monitor`。`mpi-monitor` 是 **gateway-sidecar**：复用父作业 preflight，在网关上只 wrap 一次（不嵌套 `run-slave.sh` 子作业，不对同一 `mpirun` 做 nodeset 扇出）。稳定异常码包括 `workflow_missing`、`invalid_arguments`、`implementation_missing`、`execution_error`、`timeout`、`contract_error`。
 
 成功后 Slave agent 必须停止，禁止逐节点 SSH、由 LLM 自行 poll、额外检查或重建报告。只有缺少实现或 runner 返回异常时才能自由使用工具，且仅允许一次诊断和最多一次定向重试。
 
@@ -248,8 +248,8 @@ slave/              →   经 deploy-slave.sh 部署为扁平 $remote_project/
   scripts/resolve-partition.py → scripts/resolve-partition.py
   scripts/preflight/   → scripts/preflight/
 
-master/scripts/submit.sh      SSH →    （仅 Master）
-master/scripts/poll-wait.sh  SSH →    scripts/run-slave.sh wait（阻塞至终态）
+master/scripts/submit.sh      SSH mux →  （仅 Master；默认 `--follow` 在同一连接等待）
+master/scripts/poll-wait.sh  SSH mux →  scripts/run-slave.sh wait（阻塞至终态）
                                      scripts/run-slave.sh submit / _worker / _agent_worker
 var/agent-jobs/*.last.json  ←──      $remote_project/var/agent-jobs/*.json
 ```

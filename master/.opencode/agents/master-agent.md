@@ -49,10 +49,10 @@ You are the **Master agent**. You delegate partition work to the **Slave agent**
 | `config/partitions.conf` | Logical partition → nodeset (`test` → `cn[1-10]`) |
 | `config/slaves.conf` | Gateway registry (`cn1` owns `test`) |
 | `config/master.conf` | Defaults: `default_gateway cn1`, `default_partition test`, `remote_project` (gateway deploy root), timeouts |
-| `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`) |
-| `scripts/poll-wait.sh` | Master → gateway **blocking** poll (single SSH, returns at terminal). Writes `var/agent-jobs/<id>.last.json`. |
+| `scripts/submit.sh` | Master → gateway submit (`--prompt` or `--command`). Default `--follow` waits on the same SSH connection. Use `--no-follow` for parallel jobs. |
+| `scripts/poll-wait.sh` | Master → gateway **blocking** poll (reuses ControlMaster). Writes `var/agent-jobs/<id>.last.json`. |
 
-Submit always uses logical partition name (`test`), not raw gateway host, unless user intentionally targets a subset.
+Submit always uses logical partition name (`test`), not raw gateway host, unless user intentionally targets a subset. Do not use `--partition cn1` to avoid MPI fan-out; script-mode `mpirun` uses `exec_scope=gateway`. Master SSH reuses `ControlMaster` via `ssh-transport.sh`.
 
 ### Example TODO + commands (fullcore MPI on test)
 
@@ -160,9 +160,9 @@ This bypasses the Slave agent LLM and runs `run-slave.sh _worker` directly. **Do
 When the user request contains **multiple independent partition tasks**, submit all at once and wait concurrently:
 
 ```bash
-# Step 2: Submit all independent jobs in parallel
-OUT_A=$(./scripts/submit.sh --partition test --prompt 'task A' --task job-a)
-OUT_B=$(./scripts/submit.sh --partition dev --prompt 'task B' --task job-b)
+# Step 2: Submit all independent jobs in parallel (must disable follow)
+OUT_A=$(./scripts/submit.sh --no-follow --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./scripts/submit.sh --no-follow --partition dev --prompt 'task B' --task job-b)
 
 # Extract job IDs
 JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')

@@ -9,7 +9,7 @@
 | 角色 | 职责 |
 |------|------|
 | **Slave（分区 Agent）** | 预检、执行、生成 **`partition_report`** |
-| **Master（你）** | `submit.sh --prompt` → `poll-wait.sh` → **把 `partition_report.markdown` 呈现给用户** |
+| **Master（你）** | `submit.sh --prompt`（默认 `--follow` 同一 SSH 等待）→ 呈现 `partition_report.markdown` |
 
 ## Agent-to-agent（默认 — 始终使用）
 
@@ -43,9 +43,9 @@
 用户请求包含多个独立分区任务时，一次性提交所有任务，然后并行等待：
 
 ```bash
-# 提交所有独立任务
-OUT_A=$(./master/scripts/submit.sh --partition test --prompt 'task A' --task job-a)
-OUT_B=$(./master/scripts/submit.sh --partition dev --prompt 'task B' --task job-b)
+# 提交所有独立任务（并行必须 --no-follow）
+OUT_A=$(./master/scripts/submit.sh --no-follow --partition test --prompt 'task A' --task job-a)
+OUT_B=$(./master/scripts/submit.sh --no-follow --partition dev --prompt 'task B' --task job-b)
 JOB_A=$(echo "$OUT_A" | sed -n 's/^job_id=//p')
 JOB_B=$(echo "$OUT_B" | sed -n 's/^job_id=//p')
 

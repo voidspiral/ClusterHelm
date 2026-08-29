@@ -54,6 +54,7 @@ Slave 仍然是 LLM，负责把具体需求归一化为一个 workflow 和参数
 | `hostname-check` | 检查各节点主机名 | 无 |
 | `memory-monitor` | 内存、Swap、OOM 风险采集 | 无 |
 | `fullcore-mpi` | MPI 满核测试 | `duration`、`interval` |
+| `mpi-monitor` | MPI rank CPU/RSS/IO 与时序图 | `hosts`/`host_count`、`ranks_per_node`、`executable`、`interval`、`plot`、`raw_output` |
 
 标准调用：
 
@@ -62,17 +63,9 @@ python3 scripts/workflows/workflow_runner.py run hostname-check \
   --partition test --timeout 600
 ```
 
-runner 在一次工具调用内完成 submit、阻塞 wait、结果校验、异常分类与 `partition_report` 聚合。`outcome=success` 后禁止继续检查文件、逐节点 SSH、自行 poll 或附加“顺便检查”。
+runner 在一次工具调用内完成参数校验、确定性执行、结果分类与 `partition_report` 聚合。`mpi-monitor` 走 gateway-sidecar，复用父作业 preflight，不再手写 wrap 或后处理脚本。`outcome=success` 后禁止继续检查文件、逐节点 SSH、自行 poll 或附加“顺便检查”。
 
 只有 `workflow_missing`、`implementation_missing`、`invalid_arguments`、`execution_error`、`timeout`、`contract_error` 可进入自由处理。异常处理必须复用 runner 返回的 job/report 上下文，只诊断一次；仅在 `retry_allowed=true` 时以 `--attempt 2` 对同一 workflow 做一次定向重试，之后必须报告并停止。
-
-MPI rank 或匹配进程的 CPU、RSS/内存、IO、时序监控属于
-`mpi-monitor` sidecar 例外，不进入 workflow runner。Slave 必须加载
-`mpi-monitor` Skill，再执行一次 `wrap`。固定的是监控控制层，不是任务实现：
-允许按需求生成任意任务入口、循环逻辑、CSV、绘图和报告产物，不固定文件名、语言
-或布局。生成的任务入口必须作为 `mpi-monitor wrap ... --` 后的工作负载，不能用
-`pidstat`、`ps` 或临时采样器替换监控后端。成功报告须包含
-`monitor_backend=mpi-monitor`、run ID、meta 路径和 series 数量。
 
 ## 节点排除
 
