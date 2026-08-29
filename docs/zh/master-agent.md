@@ -36,7 +36,7 @@
 
 - **任何涉及计算节点、MPI、集群执行的任务，必须通过 `submit.sh` 交给 Slave** — 即使未显式指定分区（默认 `test`）。
 - **禁止 Master 直接 SSH 或本地执行分区节点上的命令。** 所有节点级操作属于 Slave agent。
-- **未指明分区时，默认使用 `--partition test`。**
+- **未指明分区时，默认使用 `--partition test`。** 不要用 `--partition cn1` 避免 MPI 扇出；script 模式的 `mpirun` 走 `exec_scope=gateway`。Master SSH 经 `ssh-transport.sh` 复用 ControlMaster。单任务默认 `--follow`；并行任务必须 `--no-follow` 再 `poll-wait.sh`。
 
 ## 并行任务（多分区独立作业）
 
